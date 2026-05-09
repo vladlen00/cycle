@@ -1,0 +1,606 @@
+/* Mini App: Цикл - style.css
+   Палитра, типографика, layout и компоненты.
+   Тёплая женская стилистика: кремовый фон, мягкие пастельные цвета фаз.
+   Адаптив через clamp(), max-width 420px на контейнере. */
+
+/* === 1. Variables === */
+
+:root {
+  /* Палитра */
+  --bg-primary: #fbf6f1;
+  --bg-card: #ffffff;
+  --bg-subtle: #f3ebe2;
+  --text-primary: #3a2a2a;
+  --text-muted: rgba(58, 42, 42, 0.55);
+  --text-subtle: rgba(58, 42, 42, 0.35);
+  --border-soft: rgba(58, 42, 42, 0.08);
+  --border-medium: rgba(58, 42, 42, 0.15);
+
+  --color-menstruation: #e8a5a0;
+  --color-follicular:   #a8d8c5;
+  --color-ovulation:    #e8c878;
+  --color-luteal:       #c5b4d8;
+  --color-danger:       #d88a85;
+
+  /* Текущая фаза - app.js перезаписывает на .cycle-ring-wrap inline-стилем */
+  --phase-color: var(--color-menstruation);
+
+  /* Шрифты */
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Отступы */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Радиусы */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+
+  /* Тени */
+  --shadow-sm: 0 2px 8px rgba(58, 42, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(58, 42, 42, 0.08);
+  --shadow-lg: 0 16px 48px rgba(58, 42, 42, 0.12);
+
+  /* Переходы */
+  --transition-fast: 0.15s ease;
+  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* === 2. Reset === */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  color: inherit;
+}
+
+ul, ol { list-style: none; }
+a { color: inherit; text-decoration: none; }
+
+/* === 3. Base === */
+
+html, body {
+  width: 100%;
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-weight: 300;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  touch-action: manipulation;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* === 4. Utilities === */
+
+[hidden] { display: none !important; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* === 5. Layout === */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100svh;
+  max-width: 420px;
+  margin: 0 auto;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.app-header {
+  padding: clamp(20px, 5vw, 28px) var(--space-md) var(--space-md);
+  text-align: center;
+}
+
+.app-logo {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(22px, 6vw, 28px);
+  letter-spacing: 0.12em;
+  color: var(--text-primary);
+}
+
+.app-main {
+  flex: 1;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+}
+
+.app-nav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-around;
+  background: rgba(251, 246, 241, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-soft);
+  padding: var(--space-sm) var(--space-md);
+  padding-bottom: max(env(safe-area-inset-bottom), var(--space-sm));
+}
+
+.nav-btn {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  font-size: clamp(12px, 3.4vw, 14px);
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast);
+}
+
+.nav-btn[aria-current="page"] {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* === 6. Screens === */
+
+.screen {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.screen.is-active {
+  display: flex;
+  animation: fade-in 200ms ease;
+}
+
+/* === 7. Components === */
+
+/* Cycle ring */
+
+.cycle-ring-wrap {
+  position: relative;
+  width: clamp(240px, 70vw, 320px);
+  aspect-ratio: 1;
+  margin-top: var(--space-md);
+}
+
+.cycle-ring {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ring-track {
+  stroke: var(--border-soft);
+  stroke-width: 6;
+}
+
+.ring-progress {
+  stroke: var(--phase-color);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--transition), stroke 0.4s ease;
+}
+
+.cycle-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  pointer-events: none;
+}
+
+.cycle-day {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(56px, 14vw, 72px);
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.cycle-phase {
+  font-size: clamp(11px, 3vw, 13px);
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--phase-color);
+  transition: color 0.4s ease;
+}
+
+.cycle-prediction {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(15px, 4vw, 17px);
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: calc(-1 * var(--space-sm));
+}
+
+/* Buttons */
+
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: clamp(14px, 3.8vw, 15px);
+  letter-spacing: 0.03em;
+  padding: clamp(14px, 4vw, 16px) clamp(24px, 6vw, 32px);
+  border-radius: var(--radius-pill);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+  min-height: 48px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #e8a5a0, #d88a85);
+  color: #ffffff;
+  box-shadow: var(--shadow-md);
+}
+
+.btn-primary:active {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-medium);
+}
+
+.btn-secondary:active {
+  background: var(--bg-subtle);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--color-danger);
+  border: 1px solid rgba(216, 138, 133, 0.4);
+}
+
+.btn-danger:active {
+  background: rgba(216, 138, 133, 0.08);
+}
+
+/* Calendar */
+
+.calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  width: 100%;
+}
+
+.calendar-month {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.calendar-month-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(17px, 4.5vw, 20px);
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-xs);
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: clamp(10px, 2.8vw, 11px);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  padding: var(--space-xs) 0;
+}
+
+.calendar-cell {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: clamp(11px, 3vw, 13px);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+}
+
+.calendar-cell.is-empty {
+  visibility: hidden;
+}
+
+.calendar-cell.is-today {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.calendar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--phase-color);
+}
+
+/* Phase-specific dot colors (app.js puts data-phase on cell) */
+.calendar-cell[data-phase="menstruation"] .calendar-dot { background: var(--color-menstruation); }
+.calendar-cell[data-phase="follicular"]   .calendar-dot { background: var(--color-follicular); }
+.calendar-cell[data-phase="ovulation"]    .calendar-dot { background: var(--color-ovulation); }
+.calendar-cell[data-phase="luteal"]       .calendar-dot { background: var(--color-luteal); }
+
+/* History */
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  cursor: pointer;
+  min-height: 56px;
+  transition: background var(--transition-fast);
+}
+
+.history-item:active {
+  background: var(--bg-subtle);
+}
+
+.history-date {
+  font-family: var(--font-display);
+  font-size: clamp(15px, 4vw, 17px);
+  color: var(--text-primary);
+}
+
+.history-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: clamp(12px, 3.2vw, 13px);
+}
+
+.history-length {
+  color: var(--text-muted);
+}
+
+.history-deviation {
+  font-size: clamp(11px, 3vw, 12px);
+  color: var(--text-subtle);
+}
+
+.history-deviation.is-positive { color: var(--color-luteal); }
+.history-deviation.is-negative { color: var(--color-menstruation); }
+
+.history-empty {
+  text-align: center;
+  padding: var(--space-xl) var(--space-md);
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-display);
+}
+
+/* === 8. Modals === */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(58, 42, 42, 0.45);
+  animation: fade-in 200ms ease;
+}
+
+.modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-lg);
+  max-height: 90vh;
+  overflow-y: auto;
+  width: calc(100% - var(--space-md) * 2);
+  max-width: 380px;
+  border-radius: var(--radius-lg);
+}
+
+/* Bottom-sheet вариант для modal-record */
+#modal-record {
+  align-items: flex-end;
+}
+
+#modal-record .modal-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding-bottom: max(env(safe-area-inset-bottom), var(--space-lg));
+  animation: slide-up 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-card-small {
+  text-align: center;
+  animation: fade-in 200ms ease;
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(18px, 5vw, 22px);
+  font-weight: 400;
+  color: var(--text-primary);
+  margin-bottom: var(--space-md);
+}
+
+.modal-text {
+  font-size: clamp(13px, 3.5vw, 14px);
+  color: var(--text-muted);
+  margin-bottom: var(--space-lg);
+  line-height: 1.6;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.form-field input,
+.form-field textarea {
+  font-size: 16px; /* 16px иначе iOS Safari зумит при фокусе */
+  font-weight: 400;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+  outline: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+  min-height: 44px;
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  border-color: var(--color-menstruation);
+  background: var(--bg-card);
+}
+
+.form-field textarea {
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+  margin-top: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary,
+.modal-actions .btn-danger {
+  padding: 12px 20px;
+  font-size: 14px;
+  min-height: 44px;
+}
+
+.modal-actions .btn-danger {
+  margin-right: auto; /* отделяет destructive слева от ok/cancel справа */
+}
+
+/* === 9. Toast === */
+
+.toast-container {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(80px + env(safe-area-inset-bottom)); /* над nav */
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  pointer-events: none;
+  padding: 0 var(--space-md);
+}
+
+.toast {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 14px;
+  box-shadow: var(--shadow-md);
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+  pointer-events: auto;
+  animation: slide-up 200ms ease;
+}
+
+.toast.is-error {
+  border-color: rgba(216, 138, 133, 0.4);
+  color: var(--color-danger);
+}
+
+.toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 200ms, transform 200ms;
+}
