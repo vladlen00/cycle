@@ -452,6 +452,9 @@ html, body {
   border-radius: 10px;
   margin-bottom: 14px;
   width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .legend-item {
