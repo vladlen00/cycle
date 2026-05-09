@@ -270,17 +270,46 @@
       const dayDate = new Date(Date.UTC(year, month, d));
       const iso = CycleCalc.formatDate(dayDate);
       const phase = phasesMap.get(iso);
+      const isPredicted = dayDate.getTime() > today.getTime();
 
       const cell = document.createElement('div');
       cell.className = 'calendar-cell';
       if (isSameUTCDate(dayDate, today)) cell.classList.add('is-today');
-      if (dayDate.getTime() > today.getTime()) cell.classList.add('is-predicted');
+      if (isPredicted) cell.classList.add('is-predicted');
       if (phase) cell.dataset.phase = phase;
 
-      cell.appendChild(document.createTextNode(String(d)));
-      const dot = document.createElement('span');
-      dot.className = 'calendar-dot';
-      cell.appendChild(dot);
+      if (phase === 'menstruation') {
+        // Розовый круг с числом (factual) или пунктирный круг (predicted)
+        const span = document.createElement('span');
+        span.className = isPredicted ? 'cell-menstr-pred' : 'cell-menstr';
+        span.textContent = String(d);
+        cell.appendChild(span);
+      } else if (phase === 'ovulation') {
+        // Сердце SVG (absolute по центру) + число поверх него
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 22');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', '#b8932a');
+        svg.setAttribute('stroke-width', '1.5');
+        svg.classList.add('cell-ovu-heart');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z');
+        svg.appendChild(path);
+        cell.appendChild(svg);
+        const numSpan = document.createElement('span');
+        numSpan.className = 'cell-ovu-num';
+        numSpan.textContent = String(d);
+        cell.appendChild(numSpan);
+      } else if (phase === 'follicular' || phase === 'luteal') {
+        // Число + цветная точка снизу (через [data-phase])
+        cell.appendChild(document.createTextNode(String(d)));
+        const dot = document.createElement('span');
+        dot.className = 'calendar-dot';
+        cell.appendChild(dot);
+      } else {
+        // Без фазы - только число
+        cell.appendChild(document.createTextNode(String(d)));
+      }
 
       grid.appendChild(cell);
     }
