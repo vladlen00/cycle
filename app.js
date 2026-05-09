@@ -320,37 +320,113 @@
 
   function renderHistory() {
     const items = CycleCalc.getCycleHistory(state.cycles, HISTORY_LIMIT);
+    $.historyList.innerHTML = '';
     if (items.length === 0) {
-      $.historyList.innerHTML = '';
       $.historyEmpty.removeAttribute('hidden');
       return;
     }
     $.historyEmpty.setAttribute('hidden', '');
 
-    const html = items.map((item) => {
-      const dateStr = formatDateRu(CycleCalc.parseDate(item.start_date));
-      let metaHtml;
+    const today = getToday();
+    const HEART_PATH = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z';
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.className = 'history-item';
+      li.dataset.action = 'open-edit';
+      li.dataset.id = item.id;
+
+      // Шапка: дата + длина/отклонение
+      const row = document.createElement('div');
+      row.className = 'history-row';
+
+      const dateEl = document.createElement('div');
+      dateEl.className = 'history-date';
+      dateEl.textContent = formatDateRu(CycleCalc.parseDate(item.start_date));
+      row.appendChild(dateEl);
+
+      const meta = document.createElement('div');
+      meta.className = 'history-meta';
+
       if (item.length === null) {
-        metaHtml = '<div class="history-length">идёт</div>';
+        const len = document.createElement('div');
+        len.className = 'history-length';
+        len.textContent = 'идёт';
+        meta.appendChild(len);
       } else {
         const word = pluralize(item.length, ['день', 'дня', 'дней']);
-        let devHtml = '';
+        const len = document.createElement('div');
+        len.className = 'history-length';
+        len.textContent = item.length + ' ' + word;
+        meta.appendChild(len);
+
         if (item.deviation !== null && item.deviation !== 0) {
           const sign = item.deviation > 0 ? '+' : '';
           const cls = item.deviation > 0 ? 'is-positive' : 'is-negative';
-          devHtml = '<div class="history-deviation ' + cls + '">'
-                  + sign + item.deviation + '</div>';
+          const dev = document.createElement('div');
+          dev.className = 'history-deviation ' + cls;
+          dev.textContent = sign + item.deviation;
+          meta.appendChild(dev);
         }
-        metaHtml = '<div class="history-length">' + item.length + ' ' + word + '</div>'
-                 + devHtml;
       }
-      return '<li class="history-item" data-action="open-edit" data-id="' + item.id + '">'
-           +   '<div class="history-date">' + dateStr + '</div>'
-           +   '<div class="history-meta">' + metaHtml + '</div>'
-           + '</li>';
-    }).join('');
 
-    $.historyList.innerHTML = html;
+      row.appendChild(meta);
+      li.appendChild(row);
+
+      // Лента дней
+      const bar = document.createElement('div');
+      bar.className = 'hist-bar';
+
+      const isCurrent = item.length === null;
+      let barLen, cycleLenForPhase, todayDay;
+      if (isCurrent) {
+        todayDay = CycleCalc.daysBetween(CycleCalc.parseDate(item.start_date), today) + 1;
+        cycleLenForPhase = state.avgLength || 28;
+        barLen = Math.max(cycleLenForPhase, todayDay);
+      } else {
+        cycleLenForPhase = item.length;
+        barLen = item.length;
+        todayDay = item.length;
+      }
+
+      for (let d = 1; d <= barLen; d++) {
+        const isFuture = isCurrent && d > todayDay;
+        if (isFuture) {
+          const dot = document.createElement('span');
+          dot.className = 'hist-bd hist-bd-future';
+          bar.appendChild(dot);
+          continue;
+        }
+        const phase = CycleCalc.getPhaseForDay(
+          d, item.menstruation_length_days, cycleLenForPhase
+        );
+        if (phase === 'ovulation') {
+          const svg = document.createElementNS(SVG_NS, 'svg');
+          svg.setAttribute('viewBox', '0 0 24 22');
+          svg.setAttribute('fill', 'none');
+          svg.setAttribute('stroke', '#b8932a');
+          svg.setAttribute('stroke-width', '2');
+          svg.classList.add('hist-heart');
+          const path = document.createElementNS(SVG_NS, 'path');
+          path.setAttribute('d', HEART_PATH);
+          svg.appendChild(path);
+          bar.appendChild(svg);
+        } else if (phase === 'menstruation' || phase === 'follicular' || phase === 'luteal') {
+          const dot = document.createElement('span');
+          dot.className = 'hist-bd hist-bd-' + phase;
+          bar.appendChild(dot);
+        } else {
+          // phase === null (задержка за пределами avgLength) - продолжение лютеиновой
+          const dot = document.createElement('span');
+          dot.className = 'hist-bd hist-bd-luteal';
+          bar.appendChild(dot);
+        }
+      }
+
+      li.appendChild(bar);
+      $.historyList.appendChild(li);
+    }
   }
 
   // === Modals ===
