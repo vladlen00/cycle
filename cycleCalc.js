@@ -233,7 +233,13 @@
       }
       if (!owning) continue;
       const dayNum = daysBetween(owning.start, date) + 1;
-      const phase = getPhaseForDay(dayNum, owning.menstrLen, cycleLen);
+      // Wrap: день 29 при cycleLen=28 интерпретируется как день 1
+      // следующего цикла. Это даёт прогноз в календаре (овуляция,
+      // следующая менструация). main экран использует getPhaseForDay
+      // напрямую без wrap - там при задержке цикла остаётся
+      // лютеиновая, что семантически правильно.
+      const wrappedDay = ((dayNum - 1) % cycleLen) + 1;
+      const phase = getPhaseForDay(wrappedDay, owning.menstrLen, cycleLen);
       if (phase) {
         result.set(formatDate(date), phase);
       }

@@ -207,7 +207,7 @@
     const currentStart = CycleCalc.parseDate(current.start_date);
 
     const upperBound = CycleCalc.addDays(currentStart, state.avgLength + 7);
-    const toDate = today.getTime() < upperBound.getTime() ? today : upperBound;
+    const toDate = upperBound;
 
     const todayY = today.getUTCFullYear();
     const todayM = today.getUTCMonth();
@@ -267,6 +267,7 @@
       const cell = document.createElement('div');
       cell.className = 'calendar-cell';
       if (isSameUTCDate(dayDate, today)) cell.classList.add('is-today');
+      if (dayDate.getTime() > today.getTime()) cell.classList.add('is-predicted');
       if (phase) cell.dataset.phase = phase;
 
       cell.appendChild(document.createTextNode(String(d)));

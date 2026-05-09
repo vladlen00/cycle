@@ -373,6 +373,10 @@ html, body {
 .calendar-cell[data-phase="ovulation"]    .calendar-dot { background: var(--color-ovulation); }
 .calendar-cell[data-phase="luteal"]       .calendar-dot { background: var(--color-luteal); }
 
+.calendar-cell.is-predicted .calendar-dot {
+  opacity: 0.4;
+}
+
 /* History */
 
 .history-list {
