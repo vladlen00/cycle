@@ -224,6 +224,13 @@
     for (const monthDate of months) {
       $.calendarList.appendChild(renderCalendarMonth(monthDate, today, phasesMap));
     }
+
+    const currentMonthEl = $.calendarList.lastElementChild;
+    if (currentMonthEl) {
+      requestAnimationFrame(() => {
+        currentMonthEl.scrollIntoView({ block: 'start', behavior: 'auto' });
+      });
+    }
   }
 
   function renderCalendarMonth(monthDate, today, phasesMap) {
