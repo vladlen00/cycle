@@ -9,7 +9,8 @@
 
   const FETCH_LIMIT = 12;        // с запасом сверх HISTORY_LIMIT для устойчивого avg
   const HISTORY_LIMIT = 6;
-  const CALENDAR_MONTHS = 3;
+  const CALENDAR_MONTHS_BACK = 2;
+  const CALENDAR_MONTHS_FORWARD = 12;
   const RING_CIRCUMFERENCE = 540.4; // 2*pi*86, синхронно с stroke-dasharray в HTML
 
   const PHASE_COLOR_VAR = {
@@ -203,29 +204,35 @@
     if (state.cycles.length === 0) return;
 
     const today = getToday();
-    const current = state.cycles[0];
-    const currentStart = CycleCalc.parseDate(current.start_date);
-
-    const upperBound = CycleCalc.addDays(currentStart, state.avgLength + 7);
-    const toDate = upperBound;
-
     const todayY = today.getUTCFullYear();
     const todayM = today.getUTCMonth();
+
     const months = [];
-    for (let off = CALENDAR_MONTHS - 1; off >= 0; off--) {
-      months.push(new Date(Date.UTC(todayY, todayM - off, 1)));
+    for (let off = -CALENDAR_MONTHS_BACK; off <= CALENDAR_MONTHS_FORWARD; off++) {
+      months.push(new Date(Date.UTC(todayY, todayM + off, 1)));
     }
 
     const fromDate = months[0];
+    const lastMonth = months[months.length - 1];
+    const toDate = new Date(Date.UTC(
+      lastMonth.getUTCFullYear(),
+      lastMonth.getUTCMonth() + 1,
+      0
+    ));
+
     const phasesMap = CycleCalc.getCalendarPhases(
       state.cycles, fromDate, toDate, state.avgLength
     );
 
+    let currentMonthEl = null;
     for (const monthDate of months) {
-      $.calendarList.appendChild(renderCalendarMonth(monthDate, today, phasesMap));
+      const el = renderCalendarMonth(monthDate, today, phasesMap);
+      $.calendarList.appendChild(el);
+      if (monthDate.getUTCFullYear() === todayY && monthDate.getUTCMonth() === todayM) {
+        currentMonthEl = el;
+      }
     }
 
-    const currentMonthEl = $.calendarList.lastElementChild;
     if (currentMonthEl) {
       requestAnimationFrame(() => {
         currentMonthEl.scrollIntoView({ block: 'start', behavior: 'auto' });
@@ -641,7 +648,8 @@
       // toast уже показан в loadCycles (если не token_expired).
     }
 
-    setScreen('main');
+    const defaultScreen = state.cycles.length > 0 ? 'calendar' : 'main';
+    setScreen(defaultScreen);
     $.app.removeAttribute('hidden');
   }
 
