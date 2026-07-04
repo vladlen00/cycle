@@ -53,6 +53,30 @@
     }
   }
 
+  // ДВЕРЬ 2: веб-токен из фрагмента URL. Активна только на веб-платформе (там нет Telegram
+  // initData). В Телеграме irena_token в хэше нет -> no-op, initData-ветка не затрагивается.
+  function consumeWebToken() {
+    try {
+      let raw = window.location.hash || "";
+      if (raw.charAt(0) === "#") raw = raw.slice(1);
+      if (!raw) return false;
+      const params = new URLSearchParams(raw);
+      const token = params.get("irena_token");
+      if (!token) return false;
+      let ttl = parseInt(params.get("exp") || "0", 10);
+      if (!ttl || ttl <= 0) ttl = 900; // дефолт 15 мин (реальный TTL задаёт сервер mint-app-token)
+      storeToken(token, ttl);
+      // вычистить токен из URL, чтобы не остался в истории и не шарился ссылкой
+      params.delete("irena_token");
+      params.delete("exp");
+      const rest = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + window.location.search + (rest ? "#" + rest : ""));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function getInitData() {
     try {
       if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
@@ -83,6 +107,9 @@
   }
 
   async function checkAccess() {
+    // ДВЕРЬ 2: если в URL свежий #irena_token - ВСЕГДА принять и вычистить URL (даже при живом
+    // кэше). В Телеграме это no-op. Ниже initData-ветка (870) дословно прежняя.
+    consumeWebToken();
     const cached = getStoredToken();
     if (cached) return true;
 
