@@ -651,6 +651,12 @@
     const defaultScreen = state.cycles.length > 0 ? 'calendar' : 'main';
     setScreen(defaultScreen);
     $.app.removeAttribute('hidden');
+
+    // Веб-заход (нет Telegram initData): показать кнопку возврата в приложение. В ТГ скрыта.
+    if (!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData)) {
+      const ab = document.getElementById('appBackBtn');
+      if (ab) ab.style.display = 'inline-flex';
+    }
   }
 
   document.addEventListener('DOMContentLoaded', init);
