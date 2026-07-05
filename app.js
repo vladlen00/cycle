@@ -285,6 +285,13 @@
       if (isPredicted) cell.classList.add('is-predicted');
       if (phase) cell.dataset.phase = phase;
 
+      // Тап по дню (сегодня или прошлое) - создать новую запись с этой датой.
+      // Будущие (предсказанные) дни некликабельны: у поля даты max = сегодня.
+      if (!isPredicted) {
+        cell.dataset.action = 'add-for-date';
+        cell.dataset.date = iso;
+      }
+
       if (phase === 'menstruation') {
         // Розовый круг с числом (factual) или пунктирный круг (predicted)
         const span = document.createElement('span');
@@ -453,7 +460,7 @@
       $.recordTitle.textContent = 'Отметить менструацию';
       form.reset();
       form.elements.id.value = '';
-      form.elements.start_date.value = CycleCalc.formatDate(getToday());
+      form.elements.start_date.value = (opts && opts.date) || CycleCalc.formatDate(getToday());
       form.elements.menstruation_length_days.value = '5';
       form.elements.notes.value = '';
       $.btnDeleteRecord.setAttribute('hidden', '');
@@ -591,6 +598,11 @@
         case 'open-record':
           openRecordModal();
           break;
+        case 'add-for-date': {
+          const date = actionEl.dataset.date;
+          openRecordModal({ date: date || undefined });
+          break;
+        }
         case 'close-modal':
           closeRecordModal();
           break;
