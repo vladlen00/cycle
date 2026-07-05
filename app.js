@@ -533,6 +533,11 @@
           return;
         }
       } else {
+        const exists = state.cycles.some((c) => c.start_date === start_date);
+        if (exists) {
+          showToast('На эту дату уже есть запись');
+          return;
+        }
         await CyclesApi.create(payload);
       }
       closeRecordModal();
