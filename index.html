@@ -71,6 +71,13 @@
     <button class="nav-btn" data-nav="calendar">Календарь</button>
     <button class="nav-btn" data-nav="history">История</button>
   </nav>
+
+  <!-- Плавающая кнопка создания записи. Видна на Календаре и Истории (там нет своей
+       кнопки), скрыта на "Сегодня" - app.js переключает по активному экрану. -->
+  <button class="fab-add" id="fab-add" type="button" data-action="open-record"
+          aria-label="Отметить менструацию" hidden>
+    <span aria-hidden="true">+</span>
+  </button>
 </div>
 
 <div class="modal" id="modal-record" hidden>

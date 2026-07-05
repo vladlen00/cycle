@@ -301,6 +301,31 @@ html, body {
   background: rgba(216, 138, 133, 0.08);
 }
 
+/* Плавающая кнопка "добавить" (Календарь / История) */
+.fab-add {
+  position: fixed;
+  right: max(env(safe-area-inset-right), var(--space-md));
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e8a5a0, #d88a85);
+  color: #ffffff;
+  font-size: 30px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  z-index: 900;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.fab-add[hidden] { display: none; }
+.fab-add:active {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-sm);
+}
+
 /* Calendar */
 
 .calendar-list {

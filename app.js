@@ -76,6 +76,7 @@
     $.confirmText = document.getElementById('confirm-text');
 
     $.toasts = document.getElementById('toasts');
+    $.fabAdd = document.getElementById('fab-add');
   }
 
   // === Утилиты ===
@@ -149,6 +150,11 @@
       if (isActive) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
+    if ($.fabAdd) {
+      const showFab = name === 'calendar' || name === 'history';
+      if (showFab) $.fabAdd.removeAttribute('hidden');
+      else $.fabAdd.setAttribute('hidden', '');
+    }
     render();
   }
 
