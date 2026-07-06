@@ -205,6 +205,7 @@ async function handleList(
 
   const params = new URLSearchParams();
   params.set("user_id", `eq.${userId}`);
+  params.set("deleted_at", "is.null");
   if (payload?.from !== undefined) {
     if (!isValidDate(payload.from)) {
       return errorResponse(origin, 400, "Invalid from date", "invalid_date");
@@ -265,6 +266,7 @@ async function handleCreate(
     start_date: payload.start_date,
     menstruation_length_days: length,
     notes,
+    deleted_at: null,   // merge-duplicates upsert реанимирует soft-deleted строку на эту дату
   };
 
   try {
@@ -359,17 +361,22 @@ async function handleDelete(
     return errorResponse(origin, 400, "Missing id", "missing_id");
   }
 
+  // Soft-delete: проставляем deleted_at. Фильтр deleted_at=is.null делает повторный
+  // delete по уже удалённой строке идемпотентным (0 строк -> ok:true, deleted:false,
+  // без ошибки и без перезаписи исходной метки времени).
   const params = new URLSearchParams();
   params.set("id", `eq.${payload.id}`);
   params.set("user_id", `eq.${userId}`);
+  params.set("deleted_at", "is.null");
   params.set("select", "id");
 
   try {
     const data = await supabaseFetchJson(
       `/rest/v1/${TABLE}?${params.toString()}`,
       {
-        method: "DELETE",
+        method: "PATCH",
         headers: { "Prefer": "return=representation" },
+        body: JSON.stringify({ deleted_at: new Date().toISOString() }),
       }
     );
     const arr = Array.isArray(data) ? data : [];
