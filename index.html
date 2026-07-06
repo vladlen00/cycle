@@ -8,10 +8,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Raleway:wght@200;300;400&display=swap">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 <script src="telegram-web-app.js"></script>
 </head>
 <body>
+<!-- cycle delete v3 -->
 
 <div class="app" hidden>
   <!-- Возврат в веб-приложение. Скрыта по умолчанию; показывается только при веб-заходе
@@ -110,8 +111,8 @@
 <div class="modal" id="modal-confirm" hidden>
   <div class="modal-backdrop" data-action="close-confirm"></div>
   <div class="modal-card modal-card-small">
-    <div class="modal-title" id="confirm-title">Точно удалить?</div>
-    <div class="modal-text" id="confirm-text">Эту запись нельзя будет вернуть.</div>
+    <div class="modal-title" id="confirm-title">Удалить отметку?</div>
+    <div class="modal-text" id="confirm-text">Действие можно отменить только через поддержку.</div>
     <div class="modal-actions">
       <button type="button" class="btn-secondary" data-action="close-confirm">Отмена</button>
       <button type="button" class="btn-danger" data-action="confirm-yes">Удалить</button>
@@ -123,7 +124,7 @@
 
 <script src="cycleCalc.js"></script>
 <script src="auth.js"></script>
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 
 </body>
 </html>

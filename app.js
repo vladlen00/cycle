@@ -556,8 +556,8 @@
     const id = $.formRecord.elements.id.value.trim();
     if (!id) return;
     openConfirmModal({
-      title: 'Точно удалить?',
-      text: 'Эту запись нельзя будет вернуть.',
+      title: 'Удалить отметку?',
+      text: 'Действие можно отменить только через поддержку.',
       onConfirm: () => doDelete(id),
     });
   }
@@ -571,6 +571,7 @@
       closeRecordModal();
       await loadCycles();
       render();
+      showToast('Отметка удалена');
     } catch (err) {
       if (err && err.message !== 'token_expired') {
         showToast('Не удалось удалить');
