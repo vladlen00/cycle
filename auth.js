@@ -17,6 +17,10 @@
   const TOKEN_KEY = "irena_access_token";
   const TOKEN_EXPIRES_KEY = "irena_access_token_expires_at";
   const SUBSCRIBE_URL = "https://t.me/Biochakirena_bot";
+  // Веб-развязка: на вебе (нет initData) blocked-экран ведёт не в бот, а на корень
+  // app.irenabio.com - там routeHomeOrCheckout сперва проверяет Supabase-сессию и
+  // отдаёт залогиненному подписчику его ДОМ (повторной оплаты не будет), а не чекаут.
+  const WEB_APP_URL = "https://app.irenabio.com/";
   const TOKEN_EXPIRY_BUFFER_MS = 60 * 1000; // минута запаса перед expires_at
   // 7 дней - совпадает с JWT_TTL_SECONDS в verify-access. Если сервер не пришлёт
   // expiresIn в ответе, локальный кэш должен жить ровно столько же, сколько реальный JWT
@@ -90,6 +94,15 @@
 
   function showBlocked(reason) {
     document.body.innerHTML = "";
+    // Веб-контекст = нет initData. На вебе текст и кнопка ведут в приложение (сессию
+    // разрулит корень), в Телеграме - прежний путь в бот за подпиской (870 не тронуты).
+    const isTg = !!getInitData();
+    const message = isTg
+      ? "Трекер цикла доступен только участницам клуба Ирены Пол. Для получения доступа перейди в бот и оформи подписку."
+      : "Трекер цикла доступен участницам клуба Ирены Пол. Открой приложение, чтобы продолжить.";
+    const ctaHref = isTg ? SUBSCRIBE_URL : WEB_APP_URL;
+    const ctaText = isTg ? "Оформить подписку" : "Открыть приложение";
+    const ctaAttrs = isTg ? 'target="_blank" rel="noopener"' : "";
     const overlay = document.createElement("div");
     overlay.style.cssText =
       "position:fixed;inset:0;z-index:999999;background:#fbf6f1;color:#3a2a2a;" +
@@ -99,8 +112,8 @@
     overlay.innerHTML = `
       <div style="font-size:64px;margin-bottom:24px;">🌸</div>
       <div style="font-size:22px;font-weight:600;margin-bottom:12px;letter-spacing:0.02em;">Доступ закрыт</div>
-      <div style="font-size:15px;line-height:1.6;color:rgba(58,42,42,0.65);margin-bottom:32px;max-width:340px;">Трекер цикла доступен только участницам клуба Ирены Пол. Для получения доступа перейди в бот и оформи подписку.</div>
-      <a href="${SUBSCRIBE_URL}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#e8a5a0,#d88a85);color:#fff;border-radius:14px;font-size:15px;font-weight:600;text-decoration:none;box-shadow:0 8px 24px rgba(232,165,160,0.35);">Оформить подписку</a>
+      <div style="font-size:15px;line-height:1.6;color:rgba(58,42,42,0.65);margin-bottom:32px;max-width:340px;">${message}</div>
+      <a href="${ctaHref}" ${ctaAttrs} style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#e8a5a0,#d88a85);color:#fff;border-radius:14px;font-size:15px;font-weight:600;text-decoration:none;box-shadow:0 8px 24px rgba(232,165,160,0.35);">${ctaText}</a>
       ${reason ? `<div style="position:absolute;bottom:12px;left:0;right:0;font-size:10px;color:rgba(58,42,42,0.2);text-align:center;">${reason}</div>` : ""}
     `;
     document.body.appendChild(overlay);
