@@ -227,7 +227,7 @@
     ));
 
     const phasesMap = CycleCalc.getCalendarPhases(
-      state.cycles, fromDate, toDate, state.avgLength
+      state.cycles, fromDate, toDate, state.avgLength, today
     );
 
     let currentMonthEl = null;
@@ -282,8 +282,13 @@
     for (let d = 1; d <= total; d++) {
       const dayDate = new Date(Date.UTC(year, month, d));
       const iso = CycleCalc.formatDate(dayDate);
-      const phase = phasesMap.get(iso);
-      const isPredicted = dayDate.getTime() > today.getTime();
+      const info = phasesMap.get(iso) || null;
+      const phase = info ? info.phase : null;
+      const isFuture = dayDate.getTime() > today.getTime();
+      // Прогноз определяет расчёт (происхождение дня), а не сравнение с сегодня.
+      // Несбывшийся прогноз в прошлом сюда менструацией больше не приходит вовсе:
+      // такой день становится обычным с точкой своей фазы.
+      const isPredicted = info ? info.predicted : isFuture;
 
       const cell = document.createElement('div');
       cell.className = 'calendar-cell';
@@ -291,9 +296,14 @@
       if (isPredicted) cell.classList.add('is-predicted');
       if (phase) cell.dataset.phase = phase;
 
-      // Тап по дню (сегодня или прошлое) - создать новую запись с этой датой.
-      // Будущие (предсказанные) дни некликабельны: у поля даты max = сегодня.
-      if (!isPredicted) {
+      // Тап по дню менструации из реальной записи открывает эту запись на правку.
+      // Раньше он открывал форму СОЗДАНИЯ с той же датой, и день, который выглядит
+      // отмеченным, порождал вторую запись. Свободный прошедший день по-прежнему
+      // создаёт новую. Будущее некликабельно: у поля даты max = сегодня.
+      if (info && info.phase === 'menstruation' && info.cycleId) {
+        cell.dataset.action = 'open-edit';
+        cell.dataset.id = info.cycleId;
+      } else if (!isFuture && !isPredicted) {
         cell.dataset.action = 'add-for-date';
         cell.dataset.date = iso;
       }
@@ -566,12 +576,14 @@
     if (state.isLoading) return;
     state.isLoading = true;
     try {
-      await CyclesApi.delete({ id: id });
+      const res = await CyclesApi.delete({ id: id });
       closeConfirmModal();
       closeRecordModal();
       await loadCycles();
       render();
-      showToast('Отметка удалена');
+      // deleted === false: сервер не нашёл строку (уже удалена или чужой id).
+      // Раньше в этом случае всё равно рапортовали об успехе.
+      showToast(res && res.deleted === false ? 'Эта отметка уже удалена' : 'Отметка удалена');
     } catch (err) {
       if (err && err.message !== 'token_expired') {
         showToast('Не удалось удалить');

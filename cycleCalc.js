@@ -195,7 +195,7 @@
     return out;
   }
 
-  function getCalendarPhases(cycles, fromDate, toDate, avgLength) {
+  function getCalendarPhases(cycles, fromDate, toDate, avgLength, today) {
     const result = new Map();
     if (!Array.isArray(cycles) || cycles.length === 0) return result;
     if (!(fromDate instanceof Date) || isNaN(fromDate.getTime())) {
@@ -204,6 +204,9 @@
     if (!(toDate instanceof Date) || isNaN(toDate.getTime())) {
       throw new Error("getCalendarPhases: toDate must be valid Date");
     }
+    if (!(today instanceof Date) || isNaN(today.getTime())) {
+      throw new Error("getCalendarPhases: today must be valid Date");
+    }
     const totalDays = daysBetween(fromDate, toDate);
     if (totalDays < 0) return result;
 
@@ -211,13 +214,23 @@
       ? avgLength
       : DEFAULT_CYCLE_LENGTH;
 
+    const todayTs = today.getTime();
+
     // Заранее парсим старты всех циклов один раз, чтобы не делать это в цикле по дням.
-    const parsed = cycles.map(c => ({
-      start: parseDate(c.start_date),
-      menstrLen: Number.isInteger(c.menstruation_length_days) && c.menstruation_length_days > 0
-        ? c.menstruation_length_days
-        : DEFAULT_MENSTRUATION_LENGTH,
-    }));
+    // realLength - фактическая длина цикла до следующей реальной отметки. В desc-массиве
+    // следующая отметка это cycles[i - 1]. У самого нового цикла её нет (realLength = null),
+    // только он и может прогнозироваться.
+    const parsed = cycles.map((c, i) => {
+      const start = parseDate(c.start_date);
+      return {
+        id: c.id,
+        start: start,
+        menstrLen: Number.isInteger(c.menstruation_length_days) && c.menstruation_length_days > 0
+          ? c.menstruation_length_days
+          : DEFAULT_MENSTRUATION_LENGTH,
+        realLength: i > 0 ? daysBetween(start, parseDate(cycles[i - 1].start_date)) : null,
+      };
+    });
     // Порядок desc сохраняется - первый в массиве самый новый.
 
     for (let offset = 0; offset <= totalDays; offset++) {
@@ -233,15 +246,35 @@
       }
       if (!owning) continue;
       const dayNum = daysBetween(owning.start, date) + 1;
-      // Wrap: день 29 при cycleLen=28 интерпретируется как день 1
-      // следующего цикла. Это даёт прогноз в календаре (овуляция,
-      // следующая менструация). main экран использует getPhaseForDay
-      // напрямую без wrap - там при задержке цикла остаётся
-      // лютеиновая, что семантически правильно.
-      const wrappedDay = ((dayNum - 1) % cycleLen) + 1;
-      const phase = getPhaseForDay(wrappedDay, owning.menstrLen, cycleLen);
+
+      let phase;
+      let predicted;
+      if (owning.realLength !== null) {
+        // Закрытый цикл: следующая реальная отметка уже есть, прогнозировать нечего.
+        // Wrap запрещён - иначе хвост прогноза предыдущего цикла рисуется поверх дней,
+        // которые женщина уже прожила, и выглядит как её отметка.
+        // Фазы считаем по тому же среднему, что и раньше: фикс не должен двигать
+        // день овуляции в уже закрытых циклах.
+        phase = getPhaseForDay(dayNum, owning.menstrLen, cycleLen);
+        predicted = false;
+      } else if (dateTs <= todayTs) {
+        // Текущий цикл, день уже прожит. Wrap запрещён: при задержке
+        // getPhaseForDay отдаёт лютеиновую, и это правда, а не начало нового цикла.
+        phase = getPhaseForDay(dayNum, owning.menstrLen, cycleLen);
+        predicted = false;
+      } else {
+        // Будущее. Wrap: день 29 при cycleLen=28 читается как день 1 следующего
+        // цикла - это и есть прогноз (овуляция, следующая менструация).
+        const wrappedDay = ((dayNum - 1) % cycleLen) + 1;
+        phase = getPhaseForDay(wrappedDay, owning.menstrLen, cycleLen);
+        predicted = true;
+      }
       if (phase) {
-        result.set(formatDate(date), phase);
+        result.set(formatDate(date), {
+          phase: phase,
+          predicted: predicted,
+          cycleId: predicted ? null : owning.id,
+        });
       }
     }
     return result;
