@@ -16,6 +16,12 @@ const TABLE = "cycles";
 const CYCLE_COLUMNS = "id,start_date,menstruation_length_days,notes,created_at";
 
 const ALLOWED_ORIGIN_PATTERNS = [
+  // Веб-дверь. Под /cycle/ на своём origin приложение открывается через Service
+  // Worker (см. irenabio-app/sw.js), поэтому Origin запроса = app.irenabio.com,
+  // а НЕ vladlen00.github.io. Без этой строки функция отдаёт 403, и женщина
+  // видит пустой календарь БЕЗ ошибки на экране - поломка тихая.
+  // Строка аддитивная: .github.io ниже остаётся, телеграм-дверь не задета.
+  /^https:\/\/app\.irenabio\.com$/,
   /\.vercel\.app$/,
   /\.netlify\.app$/,
   /\.github\.io$/,
