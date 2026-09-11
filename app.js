@@ -14,6 +14,25 @@
   const RING_CIRCUMFERENCE = 540.4; // 2*pi*86, синхронно с stroke-dasharray в HTML
   const UNDO_TOAST_MS = 5000;    // окно, в котором можно отменить только что созданную отметку
 
+  // Картинка с датами цикла. Геометрия в логических единицах, одна и та же для
+  // всех трёх периодов: меняется только сетка месяцев и итоговый масштаб.
+  // Масштаб подбирается так, чтобы длинная сторона не вышла за SHARE_MAX_SIDE -
+  // до этого размера Telegram ужимает фото при обычной отправке.
+  const SHARE_CELL = 52;
+  const SHARE_PAD = 28;
+  const SHARE_GAP = 28;
+  const SHARE_TITLE_H = 48;
+  const SHARE_WEEKDAY_H = 36;
+  const SHARE_WEEKS = 6;         // строк в сетке месяца, всегда 6 - блоки одинаковые
+  const SHARE_CAPTION_H = 60;
+  const SHARE_LEGEND_ROW_H = 40;
+  const SHARE_COLS = 3;          // месяцев в ряду при периоде больше одного
+  const SHARE_MAX_SIDE = 1280;
+  const SHARE_MAX_SCALE = 2;
+  const SHARE_FONT_TIMEOUT_MS = 1500;
+  const SHARE_FONT_BODY = '"Raleway", -apple-system, "Segoe UI", Roboto, sans-serif';
+  const SHARE_FONT_TITLE = '"Cormorant Garamond", Georgia, serif';
+
   const PHASE_COLOR_VAR = {
     menstruation: 'var(--color-menstruation)',
     follicular:   'var(--color-follicular)',
@@ -46,6 +65,7 @@
     isLoading: false,
     pendingConfirmAction: null, // callback для modal-confirm
     undoCreate: null,           // { id, el, timer } последней созданной отметки, пока жив тост
+    shareImage: null,           // { url, file } открытой картинки, ссылку освобождаем при закрытии
   };
 
   const $ = {}; // DOM cache
@@ -81,6 +101,12 @@
     $.dayTitle = document.getElementById('day-title');
     $.dayInfo = document.getElementById('day-info');
     $.dayEditBtn = $.modalDay.querySelector('[data-action="day-edit"]');
+
+    $.shareBar = document.getElementById('share-bar');
+    $.modalShare = document.getElementById('modal-share');
+    $.modalImage = document.getElementById('modal-image');
+    $.shareImg = document.getElementById('share-img');
+    $.shareSendBtn = document.getElementById('share-send');
 
     $.toasts = document.getElementById('toasts');
     $.fabAdd = document.getElementById('fab-add');
@@ -215,9 +241,22 @@
     state.avgLength = CycleCalc.computeAverageCycleLength(state.cycles);
     const active = document.querySelector('.screen.is-active');
     const name = active ? active.dataset.screen : 'main';
+    updateShareBar(name);
     if (name === 'main') renderMain();
     else if (name === 'calendar') renderCalendar();
     else if (name === 'history') renderHistory();
+  }
+
+  // Полоса "Поделиться" живёт только на календаре и только когда есть что показать:
+  // без единой записи календарь пуст, и кнопка была бы обманом. Класс на контейнере
+  // поднимает "+", чтобы он не закрывал текст кнопки. Высоту прокручиваемой области
+  // пересчитывать не нужно: .app-main тянется на flex, полоса отнимает своё сама.
+  function updateShareBar(screenName) {
+    if (!$.shareBar || !$.app) return;
+    const visible = screenName === 'calendar' && state.cycles.length > 0;
+    if (visible) $.shareBar.removeAttribute('hidden');
+    else $.shareBar.setAttribute('hidden', '');
+    $.app.classList.toggle('has-share-bar', visible);
   }
 
   function renderMain() {
@@ -621,6 +660,297 @@
     $.modalDay.setAttribute('hidden', '');
   }
 
+  // === Картинка с датами цикла ===
+
+  function openShareModal() {
+    $.modalShare.removeAttribute('hidden');
+  }
+
+  function closeShareModal() {
+    $.modalShare.setAttribute('hidden', '');
+  }
+
+  // Пояснение про заливку и контур. На узкой картинке (один месяц) строка
+  // не помещается целиком, поэтому режем её на две заранее, одним местом
+  // и для расчёта высоты, и для рисования.
+  function shareLegendLines(cols) {
+    return cols === 1
+      ? ['Сплошной кружок - отмеченный день,', 'контур - прогноз']
+      : ['Сплошной кружок - отмеченный день, контур - прогноз'];
+  }
+
+  function shareLegendRows(cols) {
+    return (cols === 1 ? 2 : 1) + shareLegendLines(cols).length;
+  }
+
+  // Цвета берём из тех же переменных CSS, что и экран: палитра картинки
+  // не может разойтись с палитрой приложения.
+  function sharePalette() {
+    const css = getComputedStyle(document.documentElement);
+    const pick = (name, fallback) => {
+      const v = (css.getPropertyValue(name) || '').trim();
+      return v || fallback;
+    };
+    return {
+      bg: pick('--bg-primary', '#fbf6f1'),
+      ink: pick('--text-primary', '#3a2a2a'),
+      muted: pick('--text-muted', 'rgba(58, 42, 42, 0.55)'),
+      phases: {
+        menstruation: pick('--color-menstruation', '#e8a5a0'),
+        follicular: pick('--color-follicular', '#a8d8c5'),
+        ovulation: pick('--color-ovulation', '#e8c878'),
+        luteal: pick('--color-luteal', '#c5b4d8'),
+      },
+    };
+  }
+
+  // Google Fonts отдаёт шрифт подмножествами по диапазонам символов, и для canvas
+  // кириллическое подмножество может быть ещё не загружено. Просим его явно, со
+  // строкой нужных букв. Таймаут - на случай заблокированного шрифтового CDN:
+  // системный шрифт кириллицу знает, поэтому худший случай это другое начертание.
+  async function ensureShareFonts() {
+    if (!document.fonts || typeof document.fonts.load !== 'function') return;
+    const sample = 'АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюя 0123456789';
+    const wait = Promise.all([
+      document.fonts.load('400 40px "Raleway"', sample),
+      document.fonts.load('300 40px "Raleway"', sample),
+      document.fonts.load('italic 400 40px "Cormorant Garamond"', sample),
+    ]);
+    const timeout = new Promise((resolve) => setTimeout(resolve, SHARE_FONT_TIMEOUT_MS));
+    try {
+      await Promise.race([wait, timeout]);
+    } catch {
+      // Шрифт не приехал - рисуем тем, что есть.
+    }
+  }
+
+  function drawShareMonth(ctx, monthDate, x, y, phasesMap, palette) {
+    const year = monthDate.getUTCFullYear();
+    const month = monthDate.getUTCMonth();
+    const total = daysInMonth(year, month);
+    const firstWeekday = getMondayWeekday(monthDate);
+    const blockW = SHARE_CELL * 7;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = 'italic 400 30px ' + SHARE_FONT_TITLE;
+    ctx.fillStyle = palette.ink;
+    ctx.fillText(MONTH_NAMES_NOM[month] + ' ' + year, x + blockW / 2, y + SHARE_TITLE_H / 2);
+
+    ctx.font = '400 18px ' + SHARE_FONT_BODY;
+    ctx.fillStyle = palette.muted;
+    for (let i = 0; i < 7; i++) {
+      ctx.fillText(
+        WEEKDAY_NAMES_RU[i],
+        x + i * SHARE_CELL + SHARE_CELL / 2,
+        y + SHARE_TITLE_H + SHARE_WEEKDAY_H / 2
+      );
+    }
+
+    const gridTop = y + SHARE_TITLE_H + SHARE_WEEKDAY_H;
+    for (let d = 1; d <= total; d++) {
+      const idx = firstWeekday + d - 1;
+      const cx = x + (idx % 7) * SHARE_CELL + SHARE_CELL / 2;
+      const cy = gridTop + Math.floor(idx / 7) * SHARE_CELL + SHARE_CELL / 2;
+      const info = phasesMap.get(CycleCalc.formatDate(new Date(Date.UTC(year, month, d)))) || null;
+
+      if (info && palette.phases[info.phase]) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, SHARE_CELL * 0.4, 0, Math.PI * 2);
+        if (info.predicted) {
+          // Прогноз - контур того же цвета. Отмеченный день - заливка.
+          ctx.strokeStyle = palette.phases[info.phase];
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = palette.phases[info.phase];
+          ctx.fill();
+        }
+      }
+
+      ctx.font = '400 24px ' + SHARE_FONT_BODY;
+      ctx.fillStyle = palette.ink;
+      ctx.fillText(String(d), cx, cy);
+    }
+  }
+
+  function drawShareLegend(ctx, x, y, width, cols, palette) {
+    const items = [
+      ['menstruation', 'Менструация'],
+      ['follicular', 'Фолликулярная'],
+      ['ovulation', 'Овуляция'],
+      ['luteal', 'Лютеиновая'],
+    ];
+    const perRow = cols === 1 ? 2 : 4;
+    const colW = width / perRow;
+
+    ctx.textBaseline = 'middle';
+    ctx.font = '400 18px ' + SHARE_FONT_BODY;
+    for (let i = 0; i < items.length; i++) {
+      const cx = x + (i % perRow) * colW + 10;
+      const cy = y + Math.floor(i / perRow) * SHARE_LEGEND_ROW_H + SHARE_LEGEND_ROW_H / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+      ctx.fillStyle = palette.phases[items[i][0]];
+      ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.fillStyle = palette.ink;
+      ctx.fillText(items[i][1], cx + 16, cy);
+    }
+
+    const phaseRows = Math.ceil(items.length / perRow);
+    const lines = shareLegendLines(cols);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = palette.muted;
+    for (let i = 0; i < lines.length; i++) {
+      const cy = y + (phaseRows + i) * SHARE_LEGEND_ROW_H + SHARE_LEGEND_ROW_H / 2;
+      ctx.fillText(lines[i], x + width / 2, cy);
+    }
+  }
+
+  function shareWeeksInMonth(monthDate) {
+    const total = daysInMonth(monthDate.getUTCFullYear(), monthDate.getUTCMonth());
+    return Math.ceil((getMondayWeekday(monthDate) + total) / 7);
+  }
+
+  function canvasToBlob(canvas) {
+    return new Promise((resolve, reject) => {
+      if (typeof canvas.toBlob !== 'function') {
+        reject(new Error('no_toblob'));
+        return;
+      }
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('empty_blob'));
+      }, 'image/png');
+    });
+  }
+
+  function buildShareImage(monthsCount) {
+    const today = getToday();
+    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const months = [];
+    for (let i = 0; i < monthsCount; i++) {
+      months.push(new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + i, 1)));
+    }
+    const last = months[months.length - 1];
+    const toDate = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth() + 1, 0));
+
+    // Тот же расчёт и те же входы, что и у экранного календаря.
+    const phasesMap = CycleCalc.getCalendarPhases(
+      state.cycles, first, toDate, state.avgLength, today
+    );
+
+    const cols = Math.min(months.length, SHARE_COLS);
+    const rows = Math.ceil(months.length / cols);
+    const blockW = SHARE_CELL * 7;
+    // Для одного месяца берём его настоящее число недель, иначе внизу остаётся
+    // пустая полоса. В сетке из нескольких месяцев блоки держим одинаковыми.
+    const weeks = months.length === 1 ? shareWeeksInMonth(months[0]) : SHARE_WEEKS;
+    const blockH = SHARE_TITLE_H + SHARE_WEEKDAY_H + weeks * SHARE_CELL;
+    const gridW = cols * blockW + (cols - 1) * SHARE_GAP;
+    const gridH = rows * blockH + (rows - 1) * SHARE_GAP;
+    const legendH = shareLegendRows(cols) * SHARE_LEGEND_ROW_H;
+    const logicalW = SHARE_PAD * 2 + gridW;
+    const logicalH = SHARE_PAD * 2 + SHARE_CAPTION_H + gridH + SHARE_GAP + legendH;
+    const scale = Math.min(
+      SHARE_MAX_SCALE,
+      SHARE_MAX_SIDE / logicalW,
+      SHARE_MAX_SIDE / logicalH
+    );
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(logicalW * scale);
+    canvas.height = Math.round(logicalH * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no_context');
+    ctx.scale(scale, scale);
+
+    const palette = sharePalette();
+    ctx.fillStyle = palette.bg;
+    ctx.fillRect(0, 0, logicalW, logicalH);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '400 22px ' + SHARE_FONT_BODY;
+    ctx.fillStyle = palette.muted;
+    ctx.fillText('Прогноз, даты могут сдвинуться', logicalW / 2, SHARE_PAD + SHARE_CAPTION_H / 2);
+
+    const gridTop = SHARE_PAD + SHARE_CAPTION_H;
+    for (let i = 0; i < months.length; i++) {
+      const x = SHARE_PAD + (i % cols) * (blockW + SHARE_GAP);
+      const y = gridTop + Math.floor(i / cols) * (blockH + SHARE_GAP);
+      drawShareMonth(ctx, months[i], x, y, phasesMap, palette);
+    }
+
+    drawShareLegend(ctx, SHARE_PAD, gridTop + gridH + SHARE_GAP, gridW, cols, palette);
+
+    return canvasToBlob(canvas);
+  }
+
+  async function handleShareRange(monthsCount) {
+    if (state.isLoading) return;
+    closeShareModal();
+    state.isLoading = true;
+    try {
+      await ensureShareFonts();
+      const blob = await buildShareImage(monthsCount);
+      openImageModal(blob, monthsCount);
+    } catch (err) {
+      showToast('Не удалось собрать картинку');
+    } finally {
+      state.isLoading = false;
+    }
+  }
+
+  function makeShareFile(blob, monthsCount) {
+    if (typeof File !== 'function') return null;
+    try {
+      return new File([blob], 'cycle-' + monthsCount + 'm.png', { type: 'image/png' });
+    } catch {
+      return null;
+    }
+  }
+
+  function openImageModal(blob, monthsCount) {
+    closeImageModal();
+    const file = makeShareFile(blob, monthsCount);
+    const url = URL.createObjectURL(blob);
+    state.shareImage = { url: url, file: file };
+    $.shareImg.src = url;
+
+    // Кнопку показываем только когда браузер подтвердил, что умеет делиться файлом.
+    // Основной путь - долгое нажатие по картинке, он работает всегда.
+    const canShare = !!(file && typeof navigator.share === 'function'
+      && navigator.canShare && navigator.canShare({ files: [file] }));
+    if (canShare) $.shareSendBtn.removeAttribute('hidden');
+    else $.shareSendBtn.setAttribute('hidden', '');
+
+    $.modalImage.removeAttribute('hidden');
+  }
+
+  function closeImageModal() {
+    $.modalImage.setAttribute('hidden', '');
+    $.shareImg.removeAttribute('src');
+    if (state.shareImage) {
+      URL.revokeObjectURL(state.shareImage.url);
+      state.shareImage = null;
+    }
+  }
+
+  async function handleShareImage() {
+    const data = state.shareImage;
+    if (!data || !data.file) return;
+    try {
+      await navigator.share({ files: [data.file] });
+    } catch (err) {
+      // Отмена самой женщиной - не ошибка, молчим.
+      if (err && err.name === 'AbortError') return;
+      showToast('Не удалось отправить, сохрани долгим нажатием');
+    }
+  }
+
   // === Action handlers ===
 
   async function handleSubmitRecord(form) {
@@ -751,6 +1081,23 @@
         }
         case 'close-day':
           closeDayModal();
+          break;
+        case 'open-share':
+          openShareModal();
+          break;
+        case 'close-share':
+          closeShareModal();
+          break;
+        case 'share-range': {
+          const months = parseInt(actionEl.dataset.months, 10);
+          if (Number.isInteger(months) && months > 0) handleShareRange(months);
+          break;
+        }
+        case 'close-image':
+          closeImageModal();
+          break;
+        case 'share-image':
+          handleShareImage();
           break;
         case 'day-edit': {
           const editId = actionEl.dataset.id;
