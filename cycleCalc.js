@@ -4,17 +4,55 @@
 // внутри не вызывают new Date() и Date.now().
 // Используется в app.js для подсчёта дня цикла, фазы, прогноза, истории и календаря.
 // Регистрируется в global как window.CycleCalc.
+//
+// КОНТРАКТ СИНХРОНИЗАЦИИ С ТРЕКЕРОМ (biohack/src/cycleContext.js)
+// У ИИ-подружки в трекере своя автономная копия расчёта: репозитории разные.
+// Копии уже расходились - здесь отбрасывались интервалы вне 21..45, там вне
+// 18..45, и на отметках 51/28/20 женщина видела 28 в приложении и 24 у
+// подружки. Одно число продукта в двух местах.
+//
+//   Совпадать обязаны три помеченных участка SHARED-CALC: константы,
+//   computeTypicalCycleLength (порядок операций и формула медианы) и
+//   getPhaseForDay. Здесь они разнесены по файлу между функциями, которых в
+//   трекере нет; там лежат одним блоком.
+//   Правишь здесь - правь и там. Правка в одном репозитории это уже баг,
+//   даже если ничего не упало.
+//
+//   Сверять ПО СМЫСЛУ, не текстом. Тексты уже различаются форматированием:
+//   в трекере по файлу прошёлся prettier, часть if стоит без фигурных скобок
+//   и переносы строк другие. Проверено 2026-09-11: после снятия комментариев,
+//   фигурных скобок и пробелов тела getPhaseForDay совпадают символ в символ,
+//   769 знаков. Выравнивать форматирование намеренно не стали: перетасовка
+//   работающей функции ради косметики дороже, чем эта оговорка.
 
 (function () {
   // Константы
 
+  // --- SHARED-CALC BEGIN: константы, синхронно с трекером ---
+
   const LUTEAL_PHASE_DAYS = 14;
   const DEFAULT_CYCLE_LENGTH = 28;
   const DEFAULT_MENSTRUATION_LENGTH = 5;
-  const MIN_VALID_CYCLE_LENGTH = 21;
+
+  // Границы валидного интервала между отметками. Обе защищают от ошибок ввода,
+  // а НЕ от нездоровья, и путать это нельзя.
+  //
+  // 15 снизу: настоящий мусор на коротком конце это не короткий цикл, а второй
+  // старт на ту же менструацию (мазанье отмечено как новый цикл), такие
+  // интервалы дают 1-10 дней. Цикл в 20 дней редкость, но он реален, и его
+  // надо учитывать: при прежнем пороге 21 у женщины с циклами 19-20 дней
+  // выбрасывались ВСЕ интервалы, и она читала выдуманные 28 как свои.
+  // 45 сверху: отсекает не длинный цикл, а пропущенную отметку, когда один
+  // интервал стал суммой двух циклов. Два коротких цикла это уже 30+, поэтому
+  // склейка начинается примерно здесь. Настоящий цикл 45+ дней бывает, и мы
+  // платим этим сознательно: различить его от пропуска по данным нельзя.
+  const MIN_VALID_CYCLE_LENGTH = 15;
   const MAX_VALID_CYCLE_LENGTH = 45;
+
   const HISTORY_WINDOW = 6;
   const OVULATION_WINDOW_DAYS = 3; // День овуляции +/- 1, всего 3 дня
+
+  // --- SHARED-CALC END ---
 
   const PHASES = Object.freeze({
     MENSTRUATION: "menstruation",
@@ -79,9 +117,28 @@
 
   // Cycle calculations
 
-  function computeAverageCycleLength(cycles) {
+  // --- SHARED-CALC BEGIN: computeTypicalCycleLength, синхронно с трекером ---
+
+  // Медиана целых чисел, округлённая. Формула чётного случая обязана совпадать
+  // с трекером: при двух интервалах любое другое соглашение снова разведёт
+  // числа. Math.round здесь не "правильнее" других округлений, он просто
+  // ОДИНАКОВЫЙ в двух местах, и это важнее.
+  function medianRounded(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const n = sorted.length;
+    const half = Math.floor(n / 2);
+    const raw = n % 2 === 1 ? sorted[half] : (sorted[half - 1] + sorted[half]) / 2;
+    return Math.round(raw);
+  }
+
+  // Типичная длина цикла по датам соседних отметок.
+  // Возвращает число либо null. null значит "посчитать не из чего", и это НЕ
+  // повод подставить 28: выдуманное число женщина читает как своё.
+  // Медиана, а не средняя: на выборке из трёх одно нетипичное значение двигает
+  // среднюю на 5-9 дней, медиану не двигает вовсе.
+  function computeTypicalCycleLength(cycles) {
     if (!Array.isArray(cycles) || cycles.length < 2) {
-      return DEFAULT_CYCLE_LENGTH;
+      return null;
     }
     // cycles отсортированы desc по start_date. Длина cycles[i] = дни от cycles[i] до cycles[i-1].
     // cycles[0] (текущий) длины не имеет - он ещё идёт.
@@ -95,14 +152,16 @@
       }
     }
     if (lengths.length === 0) {
-      return DEFAULT_CYCLE_LENGTH;
+      return null;
     }
     // lengths идут от более новых к более старым (i растёт = смотрим всё дальше в прошлое).
-    // Берём 6 самых новых валидных.
+    // Обрезка ДО сортировки: окно это "шесть самых новых", а не "шесть самых
+    // коротких". Перестановка этих двух шагов молча меняет результат.
     const recent = lengths.slice(0, HISTORY_WINDOW);
-    const sum = recent.reduce((a, b) => a + b, 0);
-    return Math.round(sum / recent.length);
+    return medianRounded(recent);
   }
+
+  // --- SHARED-CALC END ---
 
   function getCurrentCycle(cycles, today) {
     if (!Array.isArray(cycles) || cycles.length === 0) return null;
@@ -126,6 +185,8 @@
     const start = parseDate(cycle.start_date);
     return daysBetween(start, today) + 1;
   }
+
+  // --- SHARED-CALC BEGIN: getPhaseForDay, совпадает с трекером по смыслу ---
 
   function getPhaseForDay(dayNum, menstruationLength, avgLength) {
     if (!Number.isInteger(dayNum) || dayNum < 1) {
@@ -157,18 +218,20 @@
     return PHASES.LUTEAL;
   }
 
+  // --- SHARED-CALC END ---
+
   function predictNextMenstruation(currentCycle, avgLength) {
     if (!currentCycle) return null;
-    const cycleLen = Number.isInteger(avgLength) && avgLength > 0
-      ? avgLength
-      : DEFAULT_CYCLE_LENGTH;
-    return addDays(parseDate(currentCycle.start_date), cycleLen);
+    // Типичная длина неизвестна - прогноза нет. Прежде здесь подставлялись
+    // DEFAULT_CYCLE_LENGTH, и женщина читала дату, выведенную из чужих 28.
+    if (!Number.isInteger(avgLength) || avgLength <= 0) return null;
+    return addDays(parseDate(currentCycle.start_date), avgLength);
   }
 
   function getCycleHistory(cycles, n) {
     if (!Array.isArray(cycles)) return [];
     const limit = Number.isInteger(n) && n > 0 ? n : HISTORY_WINDOW;
-    const avgLength = computeAverageCycleLength(cycles);
+    const avgLength = computeTypicalCycleLength(cycles);
     const out = [];
     const upTo = Math.min(cycles.length, limit);
     for (let i = 0; i < upTo; i++) {
@@ -181,7 +244,8 @@
         const thisStart = parseDate(c.start_date);
         const nextStart = parseDate(cycles[i - 1].start_date);
         length = daysBetween(thisStart, nextStart);
-        deviation = length - avgLength;
+        // Отклонение не от чего считать, пока типичная длина неизвестна.
+        deviation = avgLength === null ? null : length - avgLength;
       }
       out.push({
         id: c.id,
@@ -210,9 +274,13 @@
     const totalDays = daysBetween(fromDate, toDate);
     if (totalDays < 0) return result;
 
+    // Типичная длина неизвестна - режим "только отметки": прогноз не рисуем
+    // вовсе, по прожитым дням показываем одну менструацию. Подставлять
+    // DEFAULT_CYCLE_LENGTH нельзя: календарь рисовал бы фазы и прогноз от
+    // чужих 28, и женщина читала бы их как свои.
     const cycleLen = Number.isInteger(avgLength) && avgLength > 0
       ? avgLength
-      : DEFAULT_CYCLE_LENGTH;
+      : null;
 
     const todayTs = today.getTime();
 
@@ -249,7 +317,14 @@
 
       let phase;
       let predicted;
-      if (owning.realLength !== null) {
+      if (cycleLen === null) {
+        // Фазу без типичной длины разместить не от чего: день овуляции
+        // считается именно от неё. Показываем только менструацию, она
+        // отсчитывается от дня 1 и от длины цикла не зависит.
+        if (dateTs > todayTs) continue; // прогноза нет, рисовать нечего
+        phase = dayNum <= owning.menstrLen ? PHASES.MENSTRUATION : null;
+        predicted = false;
+      } else if (owning.realLength !== null) {
         // Закрытый цикл: следующая реальная отметка уже есть, прогнозировать нечего.
         // Wrap запрещён - иначе хвост прогноза предыдущего цикла рисуется поверх дней,
         // которые женщина уже прожила, и выглядит как её отметка.
@@ -292,7 +367,7 @@
       addDays,
       daysBetween,
       // calculations
-      computeAverageCycleLength,
+      computeTypicalCycleLength,
       getCurrentCycle,
       getCurrentCycleDay,
       getPhaseForDay,

@@ -597,6 +597,8 @@ html, body {
 .hist-bd-follicular   { background: #a8d8c5; }
 .hist-bd-luteal       { background: #c5b4d8; }
 .hist-bd-future       { background: rgba(58, 42, 42, 0.08); }
+/* День прожит, но фазу назвать не от чего: типичная длина цикла неизвестна. */
+.hist-bd-unknown      { background: rgba(58, 42, 42, 0.08); }
 
 .hist-heart {
   width: 11px;

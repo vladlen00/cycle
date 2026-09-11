@@ -63,7 +63,10 @@
 
   const state = {
     cycles: [],
-    avgLength: 28,
+    // null = отметок мало, типичную длину посчитать не из чего. Запасных 28
+    // здесь нет намеренно: каждый читатель обязан решить, что показать при
+    // неизвестной длине, а не получить чужое число молча.
+    typicalLength: null,
     isLoading: false,
     pendingConfirmAction: null, // callback для modal-confirm
     undoCreate: null,           // { id, el, timer } последней созданной отметки, пока жив тост
@@ -240,7 +243,7 @@
   }
 
   function render() {
-    state.avgLength = CycleCalc.computeAverageCycleLength(state.cycles);
+    state.typicalLength = CycleCalc.computeTypicalCycleLength(state.cycles);
     const active = document.querySelector('.screen.is-active');
     const name = active ? active.dataset.screen : 'main';
     updateShareBar(name);
@@ -275,20 +278,36 @@
     }
 
     const day = CycleCalc.getCurrentCycleDay(current, today);
-    const phase = CycleCalc.getPhaseForDay(
+    const known = state.typicalLength !== null;
+
+    // При неизвестной длине честно назвать можно только менструацию: она
+    // отсчитывается от дня 1. getPhaseForDay проверяет её ПЕРВОЙ, поэтому её
+    // ответ здесь годится, а остальные фазы (они встали бы по дефолтным 28)
+    // отбрасываем.
+    const rawPhase = CycleCalc.getPhaseForDay(
       day,
       current.menstruation_length_days,
-      state.avgLength
+      state.typicalLength
     );
-    const next = CycleCalc.predictNextMenstruation(current, state.avgLength);
+    const phase = (known || rawPhase === 'menstruation') ? rawPhase : null;
+    const next = CycleCalc.predictNextMenstruation(current, state.typicalLength);
 
     $.cycleDay.textContent = String(day);
     $.cyclePhase.textContent = PHASE_LABEL[phase] || '';
-    $.cyclePrediction.textContent = next ? 'Следующая ~ ' + formatDateRu(next) : '';
+    $.cyclePrediction.textContent = known
+      ? (next ? 'Следующая ~ ' + formatDateRu(next) : '')
+      : 'Данных мало для прогноза';
 
-    const progress = Math.max(0, Math.min(1, day / state.avgLength));
-    const offset = RING_CIRCUMFERENCE * (1 - progress);
-    $.ringProgress.setAttribute('stroke-dashoffset', offset.toFixed(1));
+    // Дуга показывает, какую долю цикла женщина прожила. Без типичной длины
+    // доля неизвестна, и любая дуга это ложь: полный круг читается как
+    // "цикл почти закончился". Поэтому дуги нет вовсе.
+    if (known) {
+      const progress = Math.max(0, Math.min(1, day / state.typicalLength));
+      const offset = RING_CIRCUMFERENCE * (1 - progress);
+      $.ringProgress.setAttribute('stroke-dashoffset', offset.toFixed(1));
+    } else {
+      $.ringProgress.setAttribute('stroke-dashoffset', String(RING_CIRCUMFERENCE));
+    }
 
     const colorVar = PHASE_COLOR_VAR[phase];
     if (colorVar) {
@@ -321,7 +340,7 @@
     ));
 
     const phasesMap = CycleCalc.getCalendarPhases(
-      state.cycles, fromDate, toDate, state.avgLength, today
+      state.cycles, fromDate, toDate, state.typicalLength, today
     );
 
     let currentMonthEl = null;
@@ -502,8 +521,12 @@
       let barLen, cycleLenForPhase, todayDay;
       if (isCurrent) {
         todayDay = CycleCalc.daysBetween(CycleCalc.parseDate(item.start_date), today) + 1;
-        cycleLenForPhase = state.avgLength || 28;
-        barLen = Math.max(cycleLenForPhase, todayDay);
+        // Без типичной длины полоса обрывается на сегодня: тянуть её до
+        // выдуманных 28 значит рисовать будущее, которого мы не знаем.
+        cycleLenForPhase = state.typicalLength;
+        barLen = cycleLenForPhase === null
+          ? todayDay
+          : Math.max(cycleLenForPhase, todayDay);
       } else {
         cycleLenForPhase = item.length;
         barLen = item.length;
@@ -518,9 +541,14 @@
           bar.appendChild(dot);
           continue;
         }
-        const phase = CycleCalc.getPhaseForDay(
+        const rawPhase = CycleCalc.getPhaseForDay(
           d, item.menstruation_length_days, cycleLenForPhase
         );
+        // Без типичной длины доверяем только менструации: остальные фазы
+        // встали бы по дефолтным 28.
+        const phase = (cycleLenForPhase !== null || rawPhase === 'menstruation')
+          ? rawPhase
+          : null;
         if (phase === 'ovulation') {
           const svg = document.createElementNS(SVG_NS, 'svg');
           svg.setAttribute('viewBox', '0 0 24 22');
@@ -537,9 +565,13 @@
           dot.className = 'hist-bd hist-bd-' + phase;
           bar.appendChild(dot);
         } else {
-          // phase === null (задержка за пределами avgLength) - продолжение лютеиновой
+          // Фаза неизвестна. Прежде здесь стояло "phase === null - продолжение
+          // лютеиновой", и ветка была МЁРТВОЙ: getPhaseForDay при dayNum >= 1
+          // никогда не отдаёт null. С неизвестной типичной длиной она оживает
+          // и покрасила бы лютеиновым месяц дней, про которые мы не знаем
+          // ничего. Поэтому нейтральная точка, а не лютеиновая.
           const dot = document.createElement('span');
-          dot.className = 'hist-bd hist-bd-luteal';
+          dot.className = 'hist-bd hist-bd-unknown';
           bar.appendChild(dot);
         }
       }
@@ -607,7 +639,7 @@
     // Фаза берётся тем же расчётом, что и раскраска календаря, на одну дату
     // и с теми же входами. Своей копии логики фаз здесь нет.
     const info = CycleCalc.getCalendarPhases(
-      state.cycles, date, date, state.avgLength, today
+      state.cycles, date, date, state.typicalLength, today
     ).get(iso) || null;
 
     const weekday = WEEKDAY_NAMES_RU[getMondayWeekday(date)];
@@ -616,9 +648,23 @@
 
     $.dayInfo.innerHTML = '';
     if (!info) {
+      // "Нет данных" правда только до первой отметки. Если день принадлежит
+      // начатому циклу, отметка есть, неизвестна фаза, и старый текст врал бы
+      // ровно тем способом, который мы здесь и чиним.
+      const owning = CycleCalc.getCurrentCycle(state.cycles, date);
+      const ownedDay = owning ? CycleCalc.getCurrentCycleDay(owning, date) : null;
+      const lived = ownedDay !== null && ownedDay >= 1
+        && date.getTime() <= today.getTime();
+
       const empty = document.createElement('div');
       empty.className = 'day-empty';
-      empty.textContent = 'Нет данных';
+      if (lived) {
+        empty.textContent = 'День цикла: ' + ownedDay + '. Фаза неизвестна, отметок мало';
+      } else if (owning) {
+        empty.textContent = 'Прогноза нет, отметок мало';
+      } else {
+        empty.textContent = 'Нет данных';
+      }
       $.dayInfo.appendChild(empty);
     } else {
       const phaseRow = document.createElement('div');
@@ -675,15 +721,30 @@
   // Пояснение про заливку и контур. На узкой картинке (один месяц) строка
   // не помещается целиком, поэтому режем её на две заранее, одним местом
   // и для расчёта высоты, и для рисования.
-  function shareLegendLines(cols) {
+  function shareLegendLines(cols, hasForecast) {
+    // Прогноза в картинке нет, когда отметок мало. Обещать контур в такой
+    // картинке нельзя: его никто не нарисует.
+    if (!hasForecast) {
+      return ['Сплошной кружок - отмеченный день'];
+    }
     return cols === 1
       ? ['Сплошной кружок - отмеченный день,', 'контур - прогноз']
       : ['Сплошной кружок - отмеченный день, контур - прогноз'];
   }
 
-  function shareLegendRows(cols) {
-    // Два пункта всегда встают в один ряд, дальше идут строки пояснения.
-    return 1 + shareLegendLines(cols).length;
+  // Пункты легенды повторяют то, что реально нарисовано в сетке. Без прогноза
+  // овуляции в картинке нет вовсе, и обещать её кружком нельзя.
+  function shareLegendItems(hasForecast) {
+    const items = [{ phase: 'menstruation', label: 'Менструация', radius: 9 }];
+    if (hasForecast) {
+      items.push({ phase: 'ovulation', label: 'Овуляция', radius: SHARE_OVU_DOT_R });
+    }
+    return items;
+  }
+
+  function shareLegendRows(cols, hasForecast) {
+    // Пункты всегда встают в один ряд, дальше идут строки пояснения.
+    return 1 + shareLegendLines(cols, hasForecast).length;
   }
 
   // Цвета берём из тех же переменных CSS, что и экран: палитра картинки
@@ -791,19 +852,23 @@
     }
   }
 
-  function drawShareLegend(ctx, x, y, width, cols, palette) {
-    // Два пункта, метка каждого повторяет то, что нарисовано в сетке:
-    // у менструации круг, у овуляции маленькая точка.
-    const items = [
-      { phase: 'menstruation', label: 'Менструация', radius: 9 },
-      { phase: 'ovulation', label: 'Овуляция', radius: SHARE_OVU_DOT_R },
-    ];
+  function drawShareLegend(ctx, x, y, width, cols, palette, hasForecast) {
+    // Метка каждого пункта повторяет то, что нарисовано в сетке: у менструации
+    // круг, у овуляции маленькая точка. Без прогноза овуляции в сетке нет,
+    // и пункт про неё не рисуется.
+    const items = shareLegendItems(hasForecast);
     const colW = width / items.length;
 
     ctx.textBaseline = 'middle';
     ctx.font = '400 18px ' + SHARE_FONT_BODY;
+    // Единственный пункт не растягиваем на всю ширину: он встал бы у левого
+    // края, а строка пояснения под ним центрирована.
+    const single = items.length === 1;
     for (let i = 0; i < items.length; i++) {
-      const cx = x + i * colW + 10;
+      const itemW = items[i].radius + 16 + ctx.measureText(items[i].label).width;
+      const cx = single
+        ? x + (width - itemW) / 2 + items[i].radius
+        : x + i * colW + 10;
       const cy = y + SHARE_LEGEND_ROW_H / 2;
       ctx.beginPath();
       ctx.arc(cx, cy, items[i].radius, 0, Math.PI * 2);
@@ -814,7 +879,7 @@
       ctx.fillText(items[i].label, cx + 16, cy);
     }
 
-    const lines = shareLegendLines(cols);
+    const lines = shareLegendLines(cols, hasForecast);
     ctx.textAlign = 'center';
     ctx.fillStyle = palette.muted;
     for (let i = 0; i < lines.length; i++) {
@@ -853,7 +918,7 @@
 
     // Тот же расчёт и те же входы, что и у экранного календаря.
     const phasesMap = CycleCalc.getCalendarPhases(
-      state.cycles, first, toDate, state.avgLength, today
+      state.cycles, first, toDate, state.typicalLength, today
     );
 
     const cols = Math.min(months.length, SHARE_COLS);
@@ -865,7 +930,10 @@
     const blockH = SHARE_TITLE_H + SHARE_WEEKDAY_H + weeks * SHARE_CELL;
     const gridW = cols * blockW + (cols - 1) * SHARE_GAP;
     const gridH = rows * blockH + (rows - 1) * SHARE_GAP;
-    const legendH = shareLegendRows(cols) * SHARE_LEGEND_ROW_H;
+    // Прогноз рисуется только когда есть типичная длина цикла. Флаг решает и
+    // состав легенды, и подпись сверху, чтобы картинка не обещала лишнего.
+    const hasForecast = state.typicalLength !== null;
+    const legendH = shareLegendRows(cols, hasForecast) * SHARE_LEGEND_ROW_H;
     const logicalW = SHARE_PAD * 2 + gridW;
     const logicalH = SHARE_PAD * 2 + SHARE_CAPTION_H + gridH + SHARE_GAP + legendH;
     const scale = Math.min(
@@ -889,7 +957,11 @@
     ctx.textBaseline = 'middle';
     ctx.font = '400 22px ' + SHARE_FONT_BODY;
     ctx.fillStyle = palette.muted;
-    ctx.fillText('Прогноз, даты могут сдвинуться', logicalW / 2, SHARE_PAD + SHARE_CAPTION_H / 2);
+    // Без прогноза прежняя подпись обещала бы то, чего в картинке нет.
+    const caption = hasForecast
+      ? 'Прогноз, даты могут сдвинуться'
+      : 'Отмеченные дни';
+    ctx.fillText(caption, logicalW / 2, SHARE_PAD + SHARE_CAPTION_H / 2);
 
     const gridTop = SHARE_PAD + SHARE_CAPTION_H;
     for (let i = 0; i < months.length; i++) {
@@ -898,7 +970,7 @@
       drawShareMonth(ctx, months[i], x, y, phasesMap, palette);
     }
 
-    drawShareLegend(ctx, SHARE_PAD, gridTop + gridH + SHARE_GAP, gridW, cols, palette);
+    drawShareLegend(ctx, SHARE_PAD, gridTop + gridH + SHARE_GAP, gridW, cols, palette, hasForecast);
 
     return canvasToBlob(canvas);
   }
