@@ -32,6 +32,8 @@
   const SHARE_FONT_TIMEOUT_MS = 1500;
   const SHARE_FONT_BODY = '"Raleway", -apple-system, "Segoe UI", Roboto, sans-serif';
   const SHARE_FONT_TITLE = '"Cormorant Garamond", Georgia, serif';
+  const SHARE_OVU_DOT_R = 4;     // точка овуляции под числом
+  const SHARE_OVU_DOT_DY = 15;   // её отступ от центра ячейки, в соседний ряд не залезает
 
   const PHASE_COLOR_VAR = {
     menstruation: 'var(--color-menstruation)',
@@ -680,7 +682,8 @@
   }
 
   function shareLegendRows(cols) {
-    return (cols === 1 ? 2 : 1) + shareLegendLines(cols).length;
+    // Два пункта всегда встают в один ряд, дальше идут строки пояснения.
+    return 1 + shareLegendLines(cols).length;
   }
 
   // Цвета берём из тех же переменных CSS, что и экран: палитра картинки
@@ -754,57 +757,68 @@
       const cx = x + (idx % 7) * SHARE_CELL + SHARE_CELL / 2;
       const cy = gridTop + Math.floor(idx / 7) * SHARE_CELL + SHARE_CELL / 2;
       const info = phasesMap.get(CycleCalc.formatDate(new Date(Date.UTC(year, month, d)))) || null;
+      const phase = info ? info.phase : null;
 
-      if (info && palette.phases[info.phase]) {
+      // Иерархия: главное это менструация, только у неё круг. Овуляция уходит
+      // на второй план точкой под числом, фолликулярная и лютеиновая на картинке
+      // не показываются вовсе - от них остаётся голое число.
+      if (phase === 'menstruation') {
         ctx.beginPath();
         ctx.arc(cx, cy, SHARE_CELL * 0.4, 0, Math.PI * 2);
         if (info.predicted) {
-          // Прогноз - контур того же цвета. Отмеченный день - заливка.
-          ctx.strokeStyle = palette.phases[info.phase];
+          // Прогноз - контур. Прожитый день с отметкой - заливка.
+          ctx.strokeStyle = palette.phases.menstruation;
           ctx.lineWidth = 2.5;
           ctx.stroke();
         } else {
-          ctx.fillStyle = palette.phases[info.phase];
+          ctx.fillStyle = palette.phases.menstruation;
           ctx.fill();
         }
       }
 
       ctx.font = '400 24px ' + SHARE_FONT_BODY;
       ctx.fillStyle = palette.ink;
-      ctx.fillText(String(d), cx, cy);
+      ctx.fillText(String(d), cx, phase === 'ovulation' ? cy - 2 : cy);
+
+      if (phase === 'ovulation') {
+        // Прожитый и прогнозный день овуляции выглядят одинаково: разница
+        // важна только для менструации.
+        ctx.beginPath();
+        ctx.arc(cx, cy + SHARE_OVU_DOT_DY, SHARE_OVU_DOT_R, 0, Math.PI * 2);
+        ctx.fillStyle = palette.phases.ovulation;
+        ctx.fill();
+      }
     }
   }
 
   function drawShareLegend(ctx, x, y, width, cols, palette) {
+    // Два пункта, метка каждого повторяет то, что нарисовано в сетке:
+    // у менструации круг, у овуляции маленькая точка.
     const items = [
-      ['menstruation', 'Менструация'],
-      ['follicular', 'Фолликулярная'],
-      ['ovulation', 'Овуляция'],
-      ['luteal', 'Лютеиновая'],
+      { phase: 'menstruation', label: 'Менструация', radius: 9 },
+      { phase: 'ovulation', label: 'Овуляция', radius: SHARE_OVU_DOT_R },
     ];
-    const perRow = cols === 1 ? 2 : 4;
-    const colW = width / perRow;
+    const colW = width / items.length;
 
     ctx.textBaseline = 'middle';
     ctx.font = '400 18px ' + SHARE_FONT_BODY;
     for (let i = 0; i < items.length; i++) {
-      const cx = x + (i % perRow) * colW + 10;
-      const cy = y + Math.floor(i / perRow) * SHARE_LEGEND_ROW_H + SHARE_LEGEND_ROW_H / 2;
+      const cx = x + i * colW + 10;
+      const cy = y + SHARE_LEGEND_ROW_H / 2;
       ctx.beginPath();
-      ctx.arc(cx, cy, 9, 0, Math.PI * 2);
-      ctx.fillStyle = palette.phases[items[i][0]];
+      ctx.arc(cx, cy, items[i].radius, 0, Math.PI * 2);
+      ctx.fillStyle = palette.phases[items[i].phase];
       ctx.fill();
       ctx.textAlign = 'left';
       ctx.fillStyle = palette.ink;
-      ctx.fillText(items[i][1], cx + 16, cy);
+      ctx.fillText(items[i].label, cx + 16, cy);
     }
 
-    const phaseRows = Math.ceil(items.length / perRow);
     const lines = shareLegendLines(cols);
     ctx.textAlign = 'center';
     ctx.fillStyle = palette.muted;
     for (let i = 0; i < lines.length; i++) {
-      const cy = y + (phaseRows + i) * SHARE_LEGEND_ROW_H + SHARE_LEGEND_ROW_H / 2;
+      const cy = y + (1 + i) * SHARE_LEGEND_ROW_H + SHARE_LEGEND_ROW_H / 2;
       ctx.fillText(lines[i], x + width / 2, cy);
     }
   }
