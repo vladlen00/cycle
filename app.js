@@ -12,6 +12,7 @@
   const CALENDAR_MONTHS_BACK = 2;
   const CALENDAR_MONTHS_FORWARD = 12;
   const RING_CIRCUMFERENCE = 540.4; // 2*pi*86, синхронно с stroke-dasharray в HTML
+  const UNDO_TOAST_MS = 5000;    // окно, в котором можно отменить только что созданную отметку
 
   const PHASE_COLOR_VAR = {
     menstruation: 'var(--color-menstruation)',
@@ -44,6 +45,7 @@
     avgLength: 28,
     isLoading: false,
     pendingConfirmAction: null, // callback для modal-confirm
+    undoCreate: null,           // { id, el, timer } последней созданной отметки, пока жив тост
   };
 
   const $ = {}; // DOM cache
@@ -74,6 +76,11 @@
     $.modalConfirm = document.getElementById('modal-confirm');
     $.confirmTitle = document.getElementById('confirm-title');
     $.confirmText = document.getElementById('confirm-text');
+
+    $.modalDay = document.getElementById('modal-day');
+    $.dayTitle = document.getElementById('day-title');
+    $.dayInfo = document.getElementById('day-info');
+    $.dayEditBtn = $.modalDay.querySelector('[data-action="day-edit"]');
 
     $.toasts = document.getElementById('toasts');
     $.fabAdd = document.getElementById('fab-add');
@@ -124,16 +131,62 @@
         && a.getUTCDate() === b.getUTCDate();
   }
 
-  function showToast(message) {
-    if (!$.toasts) return;
+  // opts (необязательный): { duration, actionLabel, onAction }. Без него поведение
+  // прежнее - текст на 3 секунды. Возвращает { el, timer } для досрочного снятия.
+  function showToast(message, opts) {
+    if (!$.toasts) return null;
+    const duration = (opts && Number.isInteger(opts.duration)) ? opts.duration : 3000;
     const el = document.createElement('div');
     el.className = 'toast';
-    el.textContent = message;
+    const text = document.createElement('span');
+    text.className = 'toast-text';
+    text.textContent = message;
+    el.appendChild(text);
+    if (opts && opts.actionLabel && typeof opts.onAction === 'function') {
+      el.classList.add('has-action');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-action';
+      btn.textContent = opts.actionLabel;
+      btn.addEventListener('click', () => {
+        btn.disabled = true;
+        opts.onAction();
+      });
+      el.appendChild(btn);
+    }
     $.toasts.appendChild(el);
-    setTimeout(() => {
-      el.classList.add('is-leaving');
-      setTimeout(() => el.remove(), 300);
-    }, 3000);
+    const timer = setTimeout(() => dismissToast(el), duration);
+    return { el: el, timer: timer };
+  }
+
+  function dismissToast(el) {
+    if (!el || !el.isConnected) return;
+    el.classList.add('is-leaving');
+    setTimeout(() => el.remove(), 300);
+  }
+
+  // Отмена живёт одна: новое создание снимает предыдущий тост вместе с таймером.
+  function clearUndoCreate() {
+    const u = state.undoCreate;
+    state.undoCreate = null;
+    if (!u) return;
+    clearTimeout(u.timer);
+    dismissToast(u.el);
+  }
+
+  function showUndoCreateToast(id) {
+    clearUndoCreate();
+    const handle = showToast('Отметка добавлена', {
+      duration: UNDO_TOAST_MS,
+      actionLabel: 'Отменить',
+      // doDelete сам перезагружает циклы, перерисовывает экран и честно говорит,
+      // если удалить не вышло или строки уже нет.
+      onAction: () => {
+        clearUndoCreate();
+        doDelete(id);
+      },
+    });
+    if (handle) state.undoCreate = { id: id, el: handle.el, timer: handle.timer };
   }
 
   // === Render ===
@@ -296,17 +349,13 @@
       if (isPredicted) cell.classList.add('is-predicted');
       if (phase) cell.dataset.phase = phase;
 
-      // Тап по дню менструации из реальной записи открывает эту запись на правку.
-      // Раньше он открывал форму СОЗДАНИЯ с той же датой, и день, который выглядит
-      // отмеченным, порождал вторую запись. Свободный прошедший день по-прежнему
-      // создаёт новую. Будущее некликабельно: у поля даты max = сегодня.
-      if (info && info.phase === 'menstruation' && info.cycleId) {
-        cell.dataset.action = 'open-edit';
-        cell.dataset.id = info.cycleId;
-      } else if (!isFuture && !isPredicted) {
-        cell.dataset.action = 'add-for-date';
-        cell.dataset.date = iso;
-      }
+      // Тап по дню открывает превью: дата, фаза, номер дня цикла. Раньше свободный
+      // прошедший день открывал форму СОЗДАНИЯ с этой датой, и "Сохранить" читалось
+      // как "ОК" - так появлялись случайные отметки, сдвигавшие весь прогноз.
+      // Создание записи осталось на кнопке "+" и на главном экране, правка
+      // существующей отметки - на кнопке внутри превью.
+      cell.dataset.action = 'open-day';
+      cell.dataset.date = iso;
 
       if (phase === 'menstruation') {
         // Розовый круг с числом (factual) или пунктирный круг (predicted)
@@ -505,6 +554,73 @@
     state.pendingConfirmAction = null;
   }
 
+  // Превью дня. Только чтение: ни полей ввода, ни "Сохранить".
+  function openDayModal(iso) {
+    let date;
+    try {
+      date = CycleCalc.parseDate(iso);
+    } catch {
+      return;
+    }
+    const today = getToday();
+    // Фаза берётся тем же расчётом, что и раскраска календаря, на одну дату
+    // и с теми же входами. Своей копии логики фаз здесь нет.
+    const info = CycleCalc.getCalendarPhases(
+      state.cycles, date, date, state.avgLength, today
+    ).get(iso) || null;
+
+    const weekday = WEEKDAY_NAMES_RU[getMondayWeekday(date)];
+    const isToday = isSameUTCDate(date, today);
+    $.dayTitle.textContent = formatDateRu(date) + ', ' + weekday + (isToday ? ', сегодня' : '');
+
+    $.dayInfo.innerHTML = '';
+    if (!info) {
+      const empty = document.createElement('div');
+      empty.className = 'day-empty';
+      empty.textContent = 'Нет данных';
+      $.dayInfo.appendChild(empty);
+    } else {
+      const phaseRow = document.createElement('div');
+      phaseRow.className = 'day-row';
+      phaseRow.dataset.phase = info.phase;
+      const dot = document.createElement('span');
+      dot.className = 'day-dot';
+      phaseRow.appendChild(dot);
+      const label = document.createElement('span');
+      label.textContent = (PHASE_LABEL[info.phase] || '') + (info.predicted ? ', прогноз' : '');
+      phaseRow.appendChild(label);
+      $.dayInfo.appendChild(phaseRow);
+
+      // День цикла только для прожитых дней: у прогнозного дня номер считается
+      // от последней реальной отметки и рядом со словом "прогноз" вводит в заблуждение.
+      if (!info.predicted) {
+        const cycle = CycleCalc.getCurrentCycle(state.cycles, date);
+        const dayNum = CycleCalc.getCurrentCycleDay(cycle, date);
+        if (dayNum !== null && dayNum >= 1) {
+          const dayRow = document.createElement('div');
+          dayRow.className = 'day-row';
+          dayRow.textContent = 'День цикла: ' + dayNum;
+          $.dayInfo.appendChild(dayRow);
+        }
+      }
+    }
+
+    const editId = (info && info.phase === 'menstruation' && info.cycleId) ? info.cycleId : null;
+    if (editId) {
+      $.dayEditBtn.dataset.id = editId;
+      $.dayEditBtn.removeAttribute('hidden');
+    } else {
+      delete $.dayEditBtn.dataset.id;
+      $.dayEditBtn.setAttribute('hidden', '');
+    }
+
+    $.modalDay.removeAttribute('hidden');
+  }
+
+  function closeDayModal() {
+    $.modalDay.setAttribute('hidden', '');
+  }
+
   // === Action handlers ===
 
   async function handleSubmitRecord(form) {
@@ -531,6 +647,7 @@
       notes: notesRaw || null,
     };
 
+    let createdId = null;
     state.isLoading = true;
     try {
       if (id) {
@@ -548,18 +665,23 @@
           showToast('На эту дату уже есть запись');
           return;
         }
-        await CyclesApi.create(payload);
+        const res = await CyclesApi.create(payload);
+        createdId = (res && res.cycle && res.cycle.id) ? res.cycle.id : null;
       }
       closeRecordModal();
       await loadCycles();
       render();
     } catch (err) {
+      createdId = null;
       if (err && err.message !== 'token_expired') {
         showToast('Не удалось сохранить');
       }
     } finally {
       state.isLoading = false;
     }
+    // Тост с отменой показываем после снятия isLoading, иначе тап по "Отменить"
+    // упрётся в защиту от повторного запроса внутри doDelete.
+    if (createdId) showUndoCreateToast(createdId);
   }
 
   function handleDeleteRecord() {
@@ -622,9 +744,18 @@
         case 'open-record':
           openRecordModal();
           break;
-        case 'add-for-date': {
+        case 'open-day': {
           const date = actionEl.dataset.date;
-          openRecordModal({ date: date || undefined });
+          if (date) openDayModal(date);
+          break;
+        }
+        case 'close-day':
+          closeDayModal();
+          break;
+        case 'day-edit': {
+          const editId = actionEl.dataset.id;
+          closeDayModal();
+          if (editId) handleOpenEdit(editId);
           break;
         }
         case 'close-modal':
