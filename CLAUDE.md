@@ -42,15 +42,16 @@ Telegram Mini App для @relax2000_bot, женский трекер менст�
 Запись и чтение данных в таблицу cycles идёт через отдельную Edge Function cycles-api (НЕ через прямой REST к /rest/v1/).
 
 Поток:
-- Frontend → POST /functions/v1/cycles-api с body { action, payload, initData }
-- Edge Function валидирует HMAC initData по стандарту Telegram Mini App
-- Извлекает Telegram user_id из валидированного initData
-- Выполняет CRUD к cycles через service_role (обходит RLS)
+- Frontend → POST /functions/v1/cycles-api с body { action, payload } и заголовком Authorization: Bearer <токен>
+- Edge Function проверяет подпись токена своим JWT_SECRET и берёт user_id из поля sub
+- Выполняет CRUD к cycles через service_role (обходит RLS), с явным фильтром по user_id из токена
 - Возвращает результат
+
+Подпись initData проверяет другая функция, verify-access, при выдаче токена. Сам cycles-api initData не видит.
 
 Поддерживаемые actions: list, create, update, delete.
 
-user_id в таблице cycles = Telegram user.id (число), не случайный localStorage ID.
+Колонка user_id в таблице cycles текстовая. В неё пишется Telegram user.id строкой, не случайный localStorage ID.
 
 Anon key из Supabase в коде фронта НЕ используется (в отличие от biohack). Все запросы к данным идут только через cycles-api.
 
@@ -62,10 +63,10 @@ Edge Function verify-access остаётся отдельной и не трог
 
 Tg-auth, Supabase URL и anon key возьми из них точь-в-точь, не выдумывай.
 
-## Функционал v1 (минимум)
+## Функционал (актуальный состав в HANDOVER.md)
 1. Главный экран: круговой индикатор с днём цикла, фазой, прогнозом следующей менструации
 2. Главная кнопка "Сегодня началась менструация" - один тап с подтверждением, запись в cycles
-3. Календарь: последние 3 месяца, цветные точки на менструациях
+3. Календарь: пятнадцать месяцев, два назад и двенадцать вперёд. Тап по дню открывает превью только для чтения
 4. История: последние 6 циклов с длительностью и отклонением от среднего
 5. Редактирование записей
 
@@ -94,8 +95,9 @@ Tg-auth, Supabase URL и anon key возьми из них точь-в-точь,
 - app.js
 - auth.js
 - cycleCalc.js
+- telegram-web-app.js (вендорный SDK, не трогаем)
 - edge-functions/cycles-api/index.ts (Deno TypeScript для Supabase)
-- README.md
+- db/migrations/ (след применённых DDL)
 
 ## Архитектурная готовность к расширению (НЕ делать сейчас)
 - Симптомы по дням (отдельная таблица cycle_symptoms)
@@ -103,5 +105,5 @@ Tg-auth, Supabase URL и anon key возьми из них точь-в-точь,
 
 Разделение логики (cycleCalc.js) и UI должно быть чистым.
 
-## Интеграция с трекером (потом)
-В трекере ../biohack/src/App.js будет добавлена функция getCycleContext(userId). cycleCalc.js должен быть переиспользуемым.
+## Интеграция с трекером (сделана)
+Фаза цикла уходит в ИИ-подружку из соседнего репозитория: ../biohack/src/cycleContext.js тянет циклы через cycles-api и считает фазу автономной копией логики. Копия отсеивает аномальные интервалы диапазоном 18-45 дней против 21-45 здесь, поэтому средняя длина цикла на экране и у подружки может отличаться. Это открытый хвост, правится только в biohack, соседняя папка остаётся read-only.
