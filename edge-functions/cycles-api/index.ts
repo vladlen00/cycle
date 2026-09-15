@@ -1,9 +1,9 @@
 // Supabase Edge Function: cycles-api
-// CRUD-прокси к таблице cycles. Авторизация через JWT от verify-access.
+// CRUD-прокси к таблицам cycles и cycle_symptoms. Авторизация через JWT от verify-access.
 // Использует service_role для обхода RLS, защита делается явным
 // фильтром user_id из JWT в каждом запросе к PostgREST.
 
-const SUPPORTED_ACTIONS = ["list", "create", "update", "delete"] as const;
+const SUPPORTED_ACTIONS = ["list", "create", "update", "delete", "symptoms_list", "symptoms_save"] as const;
 type Action = typeof SUPPORTED_ACTIONS[number];
 
 const DEFAULT_MENSTRUATION_LENGTH = 5;
@@ -14,6 +14,62 @@ const MAX_LIST_LIMIT = 100;
 
 const TABLE = "cycles";
 const CYCLE_COLUMNS = "id,start_date,menstruation_length_days,notes,created_at";
+
+// Отметки самочувствия по дням. Одна строка на день, у таблицы RLS без политик:
+// ходит сюда только эта функция.
+//
+// Список кодов проверяется здесь, а не в базе: формулировки утверждает Ирена, и
+// правка списка не должна требовать миграции. Всё, что база отбила бы своими
+// CHECK, отсекаем ДО записи: сработавшая проверка пишет в логи Postgres строку
+// целиком, то есть симптомы. По той же причине текст ошибки базы в ответ не уходит.
+const SYMPTOMS_TABLE = "cycle_symptoms";
+const SYMPTOM_DAY_COLUMNS = "date,symptoms,discharge,note,updated_at";
+
+// Порядок в списке это порядок хранения: набор дня сохраняется в нём, а не в
+// порядке тапов, и один и тот же набор всегда лежит одинаково.
+const SYMPTOM_CODES = [
+  "fine",
+  "lower_abdominal_pain",
+  "breast_tenderness",
+  "headache",
+  "acne",
+  "back_pain",
+  "fatigue",
+  "hot_flashes",
+  "night_sweats",
+  "forgetfulness",
+  "joint_pain",
+  "increased_appetite",
+  "insomnia",
+  "vaginal_itching",
+  "vaginal_dryness",
+  "anxiety",
+  "swelling",
+  "bloating",
+  "low_libido",
+] as const;
+const DISCHARGE_CODES = [
+  "none",
+  "creamy",
+  "watery",
+  "sticky",
+  "mucus",
+  "spotting",
+  "atypical",
+  "white_clumpy",
+  "grey",
+] as const;
+// "Всё в порядке" и "Выделений нет" это отметки, а не пустота: с другими
+// значениями своего списка не совмещаются. Синхронно с CHECK в базе.
+const SYMPTOM_FINE = "fine";
+const DISCHARGE_NONE = "none";
+
+const NOTE_MAX_CHARS = 300;               // синхронно с CHECK cycle_symptoms_note_len
+const SYMPTOMS_MIN_DATE = "2020-01-01";   // синхронно с CHECK cycle_symptoms_date_sane
+// "Сегодня" женщина считает по часам телефона, сервер знает только UTC. Сутки
+// запаса, чтобы восток не получал отказ на свой сегодняшний день.
+const SYMPTOMS_FUTURE_TOLERANCE_DAYS = 1;
+const SYMPTOMS_MAX_RANGE_DAYS = 400;
 
 const ALLOWED_ORIGIN_PATTERNS = [
   // Веб-дверь. Под /cycle/ на своём origin приложение открывается через Service
@@ -192,6 +248,48 @@ function isValidLength(n: unknown): n is number {
 
 function isStringOrNull(v: unknown): v is string | null {
   return v === null || typeof v === "string";
+}
+
+// Строгая дата для симптомов. V8 молча перекатывает 2026-02-31 в 2026-03-03,
+// и isValidDate выше такую дату пропускает. Поэтому сверяем разобранную дату с
+// исходной строкой. Поведение isValidDate для циклов не трогаем.
+function isRealDate(s: unknown): s is string {
+  if (typeof s !== "string" || !DATE_RE.test(s)) return false;
+  const t = Date.parse(s + "T00:00:00Z");
+  return !isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
+}
+
+// Дата UTC со сдвигом в днях, строкой YYYY-MM-DD.
+function utcDateShifted(days: number): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days))
+    .toISOString()
+    .slice(0, 10);
+}
+
+function daysBetweenIso(from: string, to: string): number {
+  return Math.round(
+    (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / 86400000
+  );
+}
+
+// null - набор годный, иначе причина отказа. Годный: массив строк из списка, без
+// повторов, исключающее значение только в одиночку. Повтор отбиваем, а не
+// схлопываем: приложение повторов не шлёт, и молча чинить его ошибку незачем.
+function checkCodes(value: unknown, allowed: readonly string[], exclusive: string): string | null {
+  if (!Array.isArray(value)) return "not_array";
+  const seen = new Set<string>();
+  for (const v of value) {
+    if (typeof v !== "string" || !allowed.includes(v)) return "unknown_code";
+    if (seen.has(v)) return "duplicate_code";
+    seen.add(v);
+  }
+  if (seen.has(exclusive) && seen.size > 1) return "exclusive_conflict";
+  return null;
+}
+
+function inCanonicalOrder(codes: string[], allowed: readonly string[]): string[] {
+  return allowed.filter((c) => codes.includes(c));
 }
 
 // Action handlers
@@ -395,6 +493,129 @@ async function handleDelete(
   }
 }
 
+// Отметки самочувствия за диапазон дат, обе границы включительно, по возрастанию.
+// payload: { from, to }. Ответ: { days: [{ date, symptoms, discharge, note, updated_at }] }
+async function handleSymptomsList(
+  origin: string | null,
+  userId: string,
+  payload: any
+): Promise<Response> {
+  if (!isRealDate(payload?.from) || !isRealDate(payload?.to)) {
+    return errorResponse(origin, 400, "Invalid date", "invalid_date");
+  }
+  const span = daysBetweenIso(payload.from, payload.to);
+  if (span < 0 || span > SYMPTOMS_MAX_RANGE_DAYS) {
+    return errorResponse(origin, 400, "Invalid range", "invalid_range");
+  }
+
+  const params = new URLSearchParams();
+  params.set("user_id", `eq.${userId}`);
+  params.append("date", `gte.${payload.from}`);
+  params.append("date", `lte.${payload.to}`);
+  params.set("order", "date.asc");
+  // Строка на день, поэтому в диапазоне не больше span + 1 строк.
+  params.set("limit", String(SYMPTOMS_MAX_RANGE_DAYS + 1));
+  params.set("select", SYMPTOM_DAY_COLUMNS);
+
+  try {
+    const data = await supabaseFetchJson(`/rest/v1/${SYMPTOMS_TABLE}?${params.toString()}`);
+    return okResponse(origin, { days: Array.isArray(data) ? data : [] });
+  } catch {
+    return errorResponse(origin, 500, "Supabase error", "supabase_error");
+  }
+}
+
+// Сохранение дня целиком: присланный набор заменяет прежний.
+// payload: { date, symptoms: string[], discharge: string[], note?: string | null }
+// Пустой день (ни одного кода и нет текста) удаляется НАСТОЯЩИМ удалением:
+// медицинские данные не хранятся "на всякий случай". Повтор удаления идемпотентен.
+// Ответ: { day: {...} | null, deleted: boolean }
+async function handleSymptomsSave(
+  origin: string | null,
+  userId: string,
+  payload: any
+): Promise<Response> {
+  if (!payload || typeof payload !== "object") {
+    return errorResponse(origin, 400, "Missing payload", "missing_payload");
+  }
+  if (!isRealDate(payload.date)) {
+    return errorResponse(origin, 400, "Invalid date", "invalid_date");
+  }
+  if (payload.date < SYMPTOMS_MIN_DATE || payload.date > utcDateShifted(SYMPTOMS_FUTURE_TOLERANCE_DAYS)) {
+    return errorResponse(origin, 400, "Date out of range", "date_out_of_range");
+  }
+
+  const symptomsProblem = checkCodes(payload.symptoms, SYMPTOM_CODES, SYMPTOM_FINE);
+  if (symptomsProblem) {
+    return errorResponse(origin, 400, "Invalid symptoms", "invalid_symptoms", symptomsProblem);
+  }
+  const dischargeProblem = checkCodes(payload.discharge, DISCHARGE_CODES, DISCHARGE_NONE);
+  if (dischargeProblem) {
+    return errorResponse(origin, 400, "Invalid discharge", "invalid_discharge", dischargeProblem);
+  }
+
+  let note: string | null = null;
+  if (payload.note !== undefined && payload.note !== null) {
+    if (typeof payload.note !== "string" || payload.note.includes(" ")) {
+      return errorResponse(origin, 400, "Invalid note", "invalid_note");
+    }
+    const trimmed = payload.note.trim();
+    // Длину считаем по символам, как char_length в базе: у эмодзи .length даёт 2.
+    if ([...trimmed].length > NOTE_MAX_CHARS) {
+      return errorResponse(origin, 400, "Note too long", "note_too_long");
+    }
+    note = trimmed.length > 0 ? trimmed : null;
+  }
+
+  const symptoms = inCanonicalOrder(payload.symptoms, SYMPTOM_CODES);
+  const discharge = inCanonicalOrder(payload.discharge, DISCHARGE_CODES);
+
+  if (symptoms.length === 0 && discharge.length === 0 && note === null) {
+    const params = new URLSearchParams();
+    params.set("user_id", `eq.${userId}`);
+    params.set("date", `eq.${payload.date}`);
+    params.set("select", "date");
+    try {
+      const data = await supabaseFetchJson(
+        `/rest/v1/${SYMPTOMS_TABLE}?${params.toString()}`,
+        {
+          method: "DELETE",
+          headers: { "Prefer": "return=representation" },
+        }
+      );
+      const arr = Array.isArray(data) ? data : [];
+      return okResponse(origin, { day: null, deleted: arr.length > 0 });
+    } catch {
+      return errorResponse(origin, 500, "Supabase error", "supabase_error");
+    }
+  }
+
+  const body = {
+    user_id: userId,
+    date: payload.date,
+    symptoms,
+    discharge,
+    note,
+    // Триггера на updated_at в базе нет: ставит единственный писатель, эта функция.
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    const data = await supabaseFetchJson(
+      `/rest/v1/${SYMPTOMS_TABLE}?on_conflict=user_id,date&select=${SYMPTOM_DAY_COLUMNS}`,
+      {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(body),
+      }
+    );
+    const arr = Array.isArray(data) ? data : [];
+    return okResponse(origin, { day: arr[0] ?? null, deleted: false });
+  } catch {
+    return errorResponse(origin, 500, "Supabase error", "supabase_error");
+  }
+}
+
 // Main handler
 
 // @ts-ignore Deno runtime
@@ -461,6 +682,8 @@ Deno.serve(async (req: Request) => {
     case "create": return handleCreate(origin, userId, payload);
     case "update": return handleUpdate(origin, userId, payload);
     case "delete": return handleDelete(origin, userId, payload);
+    case "symptoms_list": return handleSymptomsList(origin, userId, payload);
+    case "symptoms_save": return handleSymptomsSave(origin, userId, payload);
   }
 
   return errorResponse(origin, 500, "Internal error", "unreachable");
