@@ -202,6 +202,10 @@
   function update(payload) { return request("update", payload); }
   function del(payload)    { return request("delete", payload); }
 
+  // Отметки самочувствия по дням (таблица cycle_symptoms): та же функция и тот же токен.
+  function symptomsList(payload) { return request("symptoms_list", payload); }
+  function symptomsSave(payload) { return request("symptoms_save", payload); }
+
   // === Export ===
 
   if (typeof window !== "undefined") {
@@ -225,6 +229,8 @@
       create,
       update,
       delete: del,
+      symptomsList,
+      symptomsSave,
     };
   }
 })();

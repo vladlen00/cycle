@@ -95,6 +95,13 @@
     pendingConfirmAction: null, // callback для modal-confirm
     undoCreate: null,           // { id, el, timer } последней созданной отметки, пока жив тост
     shareImage: null,           // { url, file } открытой картинки, ссылку освобождаем при закрытии
+    // Отметки самочувствия: дата YYYY-MM-DD -> { symptoms, discharge, note }.
+    // Только в памяти: localStorage на vladlen00.github.io общий у всех мини-аппов,
+    // медицинским данным там не место.
+    symptomsByDate: new Map(),
+    // 'loading' | 'ok' | 'error'. Пока статус не 'ok', пустая карта НЕ значит
+    // "не отмечено": экран обязан отличать "отметок нет" от "не загрузились".
+    symptomsStatus: 'loading',
   };
 
   const $ = {}; // DOM cache
@@ -1489,6 +1496,47 @@
     }
   }
 
+  // Отметки самочувствия грузятся за прошлую часть календаря: с первого числа
+  // CALENDAR_MONTHS_BACK месяцев назад по сегодня. Будущих отметок не бывает.
+  function getSymptomsRange(today) {
+    const from = new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth() - CALENDAR_MONTHS_BACK,
+      1
+    ));
+    return { from: CycleCalc.formatDate(from), to: CycleCalc.formatDate(today) };
+  }
+
+  // Номер последней загрузки: запоздавший ответ прежней загрузки не затирает свежий.
+  let symptomsLoadSeq = 0;
+
+  // Не бросает никогда: сбой отметок не должен мешать циклам и календарю. Тоста
+  // нет намеренно, женщина ещё ничего не просила; что отметки не загрузились,
+  // скажет превью дня. 401 уже обработан в auth.js экраном доступа.
+  async function loadSymptoms() {
+    const seq = ++symptomsLoadSeq;
+    state.symptomsStatus = 'loading';
+    try {
+      const res = await CyclesApi.symptomsList(getSymptomsRange(getToday()));
+      if (seq !== symptomsLoadSeq) return;
+      const map = new Map();
+      const days = (res && Array.isArray(res.days)) ? res.days : [];
+      for (const d of days) {
+        if (!d || typeof d.date !== 'string') continue;
+        map.set(d.date, {
+          symptoms: Array.isArray(d.symptoms) ? d.symptoms : [],
+          discharge: Array.isArray(d.discharge) ? d.discharge : [],
+          note: typeof d.note === 'string' ? d.note : null,
+        });
+      }
+      state.symptomsByDate = map;
+      state.symptomsStatus = 'ok';
+    } catch {
+      if (seq !== symptomsLoadSeq) return;
+      state.symptomsStatus = 'error';
+    }
+  }
+
   // === Init ===
 
   async function init() {
@@ -1497,6 +1545,10 @@
 
     const ok = await IrenaAuth.checkAccess();
     if (!ok) return;
+
+    // Отметки идут параллельно с циклами и первый показ НЕ ждут: медленный ответ
+    // не должен задерживать календарь. Ошибки loadSymptoms гасит сама.
+    loadSymptoms();
 
     try {
       await loadCycles();
