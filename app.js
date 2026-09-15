@@ -83,6 +83,48 @@
   ];
   const WEEKDAY_NAMES_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
+  // Отметки самочувствия. Коды и порядок синхронны со списком в cycles-api: сервер
+  // принимает только их и хранит набор в этом же порядке. Подписи утверждает
+  // Ирена, живут они только здесь, в базе лежат коды.
+  const SYMPTOM_OPTIONS = [
+    { code: 'fine', label: 'Всё в порядке' },
+    { code: 'lower_abdominal_pain', label: 'Боль внизу живота' },
+    { code: 'breast_tenderness', label: 'Грудь болит' },
+    { code: 'headache', label: 'Головная боль' },
+    { code: 'acne', label: 'Прыщи' },
+    { code: 'back_pain', label: 'Боль в спине' },
+    { code: 'fatigue', label: 'Усталость' },
+    { code: 'hot_flashes', label: 'Приливы' },
+    { code: 'night_sweats', label: 'Ночная потливость' },
+    { code: 'forgetfulness', label: 'Забывчивость' },
+    { code: 'joint_pain', label: 'Боль в суставах' },
+    { code: 'increased_appetite', label: 'Аппетит' },
+    { code: 'insomnia', label: 'Бессонница' },
+    { code: 'vaginal_itching', label: 'Зуд' },
+    { code: 'vaginal_dryness', label: 'Сухость' },
+    { code: 'anxiety', label: 'Тревожность' },
+    { code: 'swelling', label: 'Отёки' },
+    { code: 'bloating', label: 'Вздутие' },
+    { code: 'low_libido', label: 'Либидо снижено' },
+  ];
+  const DISCHARGE_OPTIONS = [
+    { code: 'none', label: 'Выделений нет' },
+    { code: 'creamy', label: 'Кремообразные' },
+    { code: 'watery', label: 'Водянистые' },
+    { code: 'sticky', label: 'Липкие' },
+    { code: 'mucus', label: 'Слизистые' },
+    { code: 'spotting', label: 'Кровомажущие' },
+    { code: 'atypical', label: 'Нетипичные' },
+    { code: 'white_clumpy', label: 'Белые комковатые' },
+    { code: 'grey', label: 'Серые' },
+  ];
+  // "Всё в порядке" и "Выделений нет" это отметки, а не пустота: с другими
+  // значениями своего списка не совмещаются. Синхронно с cycles-api и базой.
+  const SYMPTOM_KINDS = {
+    symptoms: { options: SYMPTOM_OPTIONS, exclusive: 'fine' },
+    discharge: { options: DISCHARGE_OPTIONS, exclusive: 'none' },
+  };
+
   // === State ===
 
   const state = {
@@ -141,6 +183,15 @@
     $.dayTitle = document.getElementById('day-title');
     $.dayInfo = document.getElementById('day-info');
     $.dayEditBtn = $.modalDay.querySelector('[data-action="day-edit"]');
+
+    $.modalSymptoms = document.getElementById('modal-symptoms');
+    $.symCard = $.modalSymptoms.querySelector('.modal-card');
+    $.symDate = document.getElementById('sym-date');
+    $.symSymptoms = document.getElementById('sym-symptoms');
+    $.symDischarge = document.getElementById('sym-discharge');
+    $.symNote = document.getElementById('sym-note');
+    $.symFoot = document.getElementById('sym-foot');
+    $.symConfirm = document.getElementById('sym-confirm');
 
     $.shareBar = document.getElementById('share-bar');
     $.modalShare = document.getElementById('modal-share');
@@ -779,7 +830,8 @@
     state.pendingConfirmAction = null;
   }
 
-  // Превью дня. Только чтение: ни полей ввода, ни "Сохранить".
+  // Превью дня. Только чтение: ни полей ввода, ни "Сохранить". Самочувствие
+  // отмечают в отдельной шторке, сюда приходит только кнопка к ней.
   function openDayModal(iso) {
     let date;
     try {
@@ -787,6 +839,7 @@
     } catch {
       return;
     }
+    $.modalDay.dataset.date = iso;
     const today = getToday();
     // Фаза берётся тем же расчётом, что и раскраска календаря, на одну дату
     // и с теми же входами. Своей копии логики фаз здесь нет.
@@ -844,6 +897,8 @@
       }
     }
 
+    renderDaySymptoms(iso, date, today);
+
     const editId = (info && info.phase === 'menstruation' && info.cycleId) ? info.cycleId : null;
     if (editId) {
       $.dayEditBtn.dataset.id = editId;
@@ -858,6 +913,297 @@
 
   function closeDayModal() {
     $.modalDay.setAttribute('hidden', '');
+  }
+
+  // === Самочувствие ===
+
+  // Строка дня из ответа сервера в форму, с которой работает экран.
+  function normalizeSymptomDay(d) {
+    return {
+      symptoms: Array.isArray(d.symptoms) ? d.symptoms : [],
+      discharge: Array.isArray(d.discharge) ? d.discharge : [],
+      note: typeof d.note === 'string' ? d.note : null,
+    };
+  }
+
+  // Коды из набора в порядке списка. Код не из списка сюда не проходит.
+  function optionCodes(options, selected) {
+    return options.filter((o) => selected.has(o.code)).map((o) => o.code);
+  }
+
+  // Строка для превью: подписи со второй с маленькой буквы, чтобы читалось фразой.
+  // Код не из списка (если Ирена что-то уберёт) не показываем, подписи для него нет.
+  function describeSymptomDay(day) {
+    const parts = [];
+    const symptoms = SYMPTOM_OPTIONS
+      .filter((o) => day.symptoms.includes(o.code))
+      .map((o, i) => (i === 0 ? o.label : o.label.toLowerCase()));
+    if (symptoms.length) parts.push(symptoms.join(', '));
+    if (day.discharge.includes(SYMPTOM_KINDS.discharge.exclusive)) {
+      parts.push('Выделений нет');
+    } else {
+      const discharge = DISCHARGE_OPTIONS
+        .filter((o) => day.discharge.includes(o.code))
+        .map((o) => o.label.toLowerCase());
+      if (discharge.length) parts.push('Выделения: ' + discharge.join(', '));
+    }
+    if (day.note) parts.push('«' + day.note + '»');
+    return parts.join('. ');
+  }
+
+  // Блок в превью дня: что отмечено и кнопка в шторку. У будущего дня блока нет,
+  // отмечают то, что было. Пока отметки не загрузились или загрузка упала, писать
+  // "Не отмечено" нельзя, и в шторку не пускаем: сохранение заменяет день целиком
+  // и затёрло бы отметки, которых экран не видел.
+  function renderDaySymptoms(iso, date, today) {
+    if (date.getTime() > today.getTime()) return;
+
+    const block = document.createElement('div');
+    block.className = 'day-sym';
+    const title = document.createElement('div');
+    title.className = 'form-label';
+    title.textContent = 'Самочувствие';
+    block.appendChild(title);
+
+    const text = document.createElement('div');
+    text.className = 'day-sym-text';
+    block.appendChild(text);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-secondary btn-block';
+    btn.dataset.date = iso;
+
+    if (state.symptomsStatus === 'ok') {
+      const day = state.symptomsByDate.get(iso) || null;
+      text.textContent = day ? describeSymptomDay(day) : 'Не отмечено';
+      text.classList.toggle('is-muted', !day);
+      btn.dataset.action = 'open-symptoms';
+      btn.textContent = day ? 'Изменить самочувствие' : 'Отметить самочувствие';
+    } else if (state.symptomsStatus === 'loading') {
+      text.textContent = 'Загружаем отметки';
+      text.classList.add('is-muted');
+      btn.textContent = 'Отметить самочувствие';
+      btn.disabled = true;
+    } else {
+      text.textContent = 'Не удалось загрузить отметки';
+      text.classList.add('is-muted');
+      btn.dataset.action = 'symptoms-retry';
+      btn.textContent = 'Повторить';
+    }
+    block.appendChild(btn);
+    $.dayInfo.appendChild(block);
+  }
+
+  // Превью открыто, а отметки догрузились или упали: перерисовать его на месте.
+  function refreshOpenDayModal() {
+    if ($.modalDay && !$.modalDay.hidden && $.modalDay.dataset.date) {
+      openDayModal($.modalDay.dataset.date);
+    }
+  }
+
+  // Шторка отметки. Черновик живёт, только пока она открыта, и только в памяти.
+  const symptomsSheet = {
+    date: null,            // YYYY-MM-DD открытого дня
+    draft: null,           // { symptoms: Set, discharge: Set }
+    initial: null,         // снимок на момент открытия: есть ли что терять при закрытии
+    saving: false,
+    closingConfirm: false, // что сейчас выставлено Телеграму
+  };
+
+  // Варианты рисуются один раз из списков выше: подписи живут в одном месте.
+  // Исключающий вариант идёт первым на всю ширину, остальные сеткой в две колонки.
+  function buildSymptomOptions() {
+    for (const kind of Object.keys(SYMPTOM_KINDS)) {
+      const host = kind === 'symptoms' ? $.symSymptoms : $.symDischarge;
+      if (host.childElementCount > 0) continue;
+      const cfg = SYMPTOM_KINDS[kind];
+      const grid = document.createElement('div');
+      grid.className = 'sym-grid';
+      for (const opt of cfg.options) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sym-chip';
+        b.dataset.action = 'symptom-toggle';
+        b.dataset.kind = kind;
+        b.dataset.code = opt.code;
+        b.setAttribute('aria-pressed', 'false');
+        b.textContent = opt.label;
+        if (opt.code === cfg.exclusive) {
+          b.classList.add('is-wide');
+          host.appendChild(b);
+        } else {
+          grid.appendChild(b);
+        }
+      }
+      host.appendChild(grid);
+    }
+  }
+
+  function syncSymptomChips() {
+    const draft = symptomsSheet.draft;
+    $.modalSymptoms.querySelectorAll('.sym-chip').forEach((b) => {
+      const set = draft && draft[b.dataset.kind];
+      b.setAttribute('aria-pressed', set && set.has(b.dataset.code) ? 'true' : 'false');
+    });
+  }
+
+  function currentSymptomsSnapshot() {
+    const draft = symptomsSheet.draft;
+    return JSON.stringify([
+      optionCodes(SYMPTOM_OPTIONS, draft.symptoms),
+      optionCodes(DISCHARGE_OPTIONS, draft.discharge),
+      $.symNote.value.trim(),
+    ]);
+  }
+
+  function isSymptomsDirty() {
+    return !!symptomsSheet.draft && currentSymptomsSnapshot() !== symptomsSheet.initial;
+  }
+
+  // Свайп вниз и крестик Телеграма закрывают всё приложение мимо шторки. Пока есть
+  // несохранённое, просим Телеграм переспросить. Ниже 6.2 и на вебе (там SDK
+  // сообщает 6.0) не зовём вовсе: SDK на каждый вызов пишет предупреждение.
+  function setClosingConfirmation(on) {
+    if (symptomsSheet.closingConfirm === on) return;
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (!tg || !tg.initData || typeof tg.isVersionAtLeast !== 'function' || !tg.isVersionAtLeast('6.2')) {
+      return;
+    }
+    try {
+      if (on) tg.enableClosingConfirmation();
+      else tg.disableClosingConfirmation();
+      symptomsSheet.closingConfirm = on;
+    } catch {
+      // Переспрос при закрытии это страховка, шторку он ломать не должен.
+    }
+  }
+
+  function updateClosingConfirmation() {
+    setClosingConfirmation(!$.modalSymptoms.hidden && isSymptomsDirty());
+  }
+
+  // Подтверждение живёт внутри шторки на месте ряда кнопок: общее окно
+  // подтверждения заточено под удаление записи, его не трогаем.
+  function showSymptomsConfirm(on) {
+    $.symFoot.hidden = on;
+    $.symConfirm.hidden = !on;
+  }
+
+  function setSymptomsSaving(saving) {
+    symptomsSheet.saving = saving;
+    $.modalSymptoms.querySelectorAll('button, textarea').forEach((el) => {
+      el.disabled = saving;
+    });
+  }
+
+  function openSymptomsSheet(iso) {
+    if (state.symptomsStatus !== 'ok') return;
+    let date;
+    try {
+      date = CycleCalc.parseDate(iso);
+    } catch {
+      return;
+    }
+    if (date.getTime() > getToday().getTime()) return;
+
+    buildSymptomOptions();
+    const day = state.symptomsByDate.get(iso) || null;
+    symptomsSheet.date = iso;
+    symptomsSheet.draft = {
+      symptoms: new Set(optionCodes(SYMPTOM_OPTIONS, new Set(day ? day.symptoms : []))),
+      discharge: new Set(optionCodes(DISCHARGE_OPTIONS, new Set(day ? day.discharge : []))),
+    };
+    $.symNote.value = (day && day.note) || '';
+    symptomsSheet.initial = currentSymptomsSnapshot();
+
+    $.symDate.textContent = formatDateRu(date) + ', ' + WEEKDAY_NAMES_RU[getMondayWeekday(date)];
+    syncSymptomChips();
+    showSymptomsConfirm(false);
+    setSymptomsSaving(false);
+
+    closeDayModal();
+    $.modalSymptoms.removeAttribute('hidden');
+    $.symCard.scrollTop = 0;
+  }
+
+  // Закрытие всегда возвращает в превью того же дня, уже с новыми отметками.
+  function closeSymptomsSheet() {
+    const iso = symptomsSheet.date;
+    $.modalSymptoms.setAttribute('hidden', '');
+    showSymptomsConfirm(false);
+    symptomsSheet.date = null;
+    symptomsSheet.draft = null;
+    symptomsSheet.initial = null;
+    $.symNote.value = '';
+    setClosingConfirmation(false);
+    if (iso) openDayModal(iso);
+  }
+
+  // Отмена и тап по фону: без изменений закрываем молча, с изменениями переспрашиваем.
+  function requestCloseSymptomsSheet() {
+    if (symptomsSheet.saving) return;
+    if (isSymptomsDirty()) {
+      showSymptomsConfirm(true);
+      return;
+    }
+    closeSymptomsSheet();
+  }
+
+  function toggleSymptom(kind, code) {
+    const cfg = SYMPTOM_KINDS[kind];
+    const set = symptomsSheet.draft && symptomsSheet.draft[kind];
+    if (!cfg || !set || symptomsSheet.saving) return;
+    if (set.has(code)) {
+      set.delete(code);
+    } else if (code === cfg.exclusive) {
+      set.clear();
+      set.add(code);
+    } else {
+      set.delete(cfg.exclusive);
+      set.add(code);
+    }
+    syncSymptomChips();
+    showSymptomsConfirm(false);
+    updateClosingConfirmation();
+  }
+
+  async function saveSymptomsSheet() {
+    if (symptomsSheet.saving || !symptomsSheet.draft) return;
+    // Ничего не поменялось: запрос не нужен, просто назад в превью.
+    if (!isSymptomsDirty()) {
+      closeSymptomsSheet();
+      return;
+    }
+    const iso = symptomsSheet.date;
+    const draft = symptomsSheet.draft;
+    const payload = {
+      date: iso,
+      symptoms: optionCodes(SYMPTOM_OPTIONS, draft.symptoms),
+      discharge: optionCodes(DISCHARGE_OPTIONS, draft.discharge),
+      note: $.symNote.value.trim() || null,
+    };
+
+    setSymptomsSaving(true);
+    let res;
+    try {
+      res = await CyclesApi.symptomsSave(payload);
+    } catch (err) {
+      setSymptomsSaving(false);
+      // Шторка остаётся открытой со всеми выборами, повторить можно тем же тапом.
+      if (err && err.message !== 'token_expired') showToast('Не удалось сохранить');
+      return;
+    }
+
+    // В память кладём день из ответа сервера, а не свой черновик.
+    if (res && res.day) {
+      state.symptomsByDate.set(iso, normalizeSymptomDay(res.day));
+    } else {
+      state.symptomsByDate.delete(iso);
+    }
+    setSymptomsSaving(false);
+    closeSymptomsSheet();
+    showToast(res && res.day ? 'Сохранено' : 'Отметки дня удалены');
   }
 
   // === Картинка с датами цикла ===
@@ -1401,6 +1747,30 @@
         case 'close-day':
           closeDayModal();
           break;
+        case 'open-symptoms': {
+          const date = actionEl.dataset.date;
+          if (date) openSymptomsSheet(date);
+          break;
+        }
+        case 'symptoms-retry':
+          loadSymptoms();
+          refreshOpenDayModal();
+          break;
+        case 'symptom-toggle':
+          toggleSymptom(actionEl.dataset.kind, actionEl.dataset.code);
+          break;
+        case 'symptoms-cancel':
+          requestCloseSymptomsSheet();
+          break;
+        case 'symptoms-keep':
+          showSymptomsConfirm(false);
+          break;
+        case 'symptoms-discard':
+          closeSymptomsSheet();
+          break;
+        case 'symptoms-save':
+          saveSymptomsSheet();
+          break;
         case 'open-share':
           openShareModal();
           break;
@@ -1478,6 +1848,11 @@
       e.target.dataset.touched = '1';
     });
 
+    $.symNote.addEventListener('input', () => {
+      showSymptomsConfirm(false);
+      updateClosingConfirmation();
+    });
+
     // Окно Телеграма меняет высоту (разворот, поворот), кольцо под карточкой пересчитываем.
     window.addEventListener('resize', fitRingToLengthAsk);
   }
@@ -1523,11 +1898,7 @@
       const days = (res && Array.isArray(res.days)) ? res.days : [];
       for (const d of days) {
         if (!d || typeof d.date !== 'string') continue;
-        map.set(d.date, {
-          symptoms: Array.isArray(d.symptoms) ? d.symptoms : [],
-          discharge: Array.isArray(d.discharge) ? d.discharge : [],
-          note: typeof d.note === 'string' ? d.note : null,
-        });
+        map.set(d.date, normalizeSymptomDay(d));
       }
       state.symptomsByDate = map;
       state.symptomsStatus = 'ok';
@@ -1535,6 +1906,8 @@
       if (seq !== symptomsLoadSeq) return;
       state.symptomsStatus = 'error';
     }
+    // Превью могли открыть, пока шли отметки: перерисовать его с настоящим ответом.
+    refreshOpenDayModal();
   }
 
   // === Init ===

@@ -155,6 +155,38 @@
   </div>
 </div>
 
+<!-- Отметка самочувствия за день. Открывается только кнопкой из превью дня, само
+     превью остаётся только для чтения. Варианты рисует app.js из SYMPTOM_OPTIONS и
+     DISCHARGE_OPTIONS. Длина своего текста синхронна с cycles-api и базой. -->
+<div class="modal" id="modal-symptoms" hidden>
+  <div class="modal-backdrop" data-action="symptoms-cancel"></div>
+  <div class="modal-card sym-card" role="dialog" aria-labelledby="sym-title">
+    <div class="modal-title" id="sym-title">Самочувствие</div>
+    <div class="sym-date" id="sym-date"></div>
+    <div class="sym-section">
+      <div class="form-label">Симптомы</div>
+      <div id="sym-symptoms"></div>
+    </div>
+    <div class="sym-section">
+      <div class="form-label">Выделения</div>
+      <div id="sym-discharge"></div>
+    </div>
+    <label class="form-field sym-note">
+      <span class="form-label">Своими словами (необязательно)</span>
+      <textarea id="sym-note" rows="2" maxlength="300"></textarea>
+    </label>
+    <div class="sym-foot" id="sym-foot">
+      <button type="button" class="btn-secondary" data-action="symptoms-cancel">Отмена</button>
+      <button type="button" class="btn-primary" data-action="symptoms-save">Сохранить</button>
+    </div>
+    <div class="sym-foot" id="sym-confirm" hidden>
+      <span class="sym-confirm-text">Не сохранять отметки?</span>
+      <button type="button" class="btn-secondary" data-action="symptoms-keep">Вернуться</button>
+      <button type="button" class="btn-danger" data-action="symptoms-discard">Не сохранять</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="modal-share" hidden>
   <div class="modal-backdrop" data-action="close-share"></div>
   <div class="modal-card modal-card-small">

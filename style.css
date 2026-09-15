@@ -934,6 +934,126 @@ html, body {
   color: var(--text-muted);
 }
 
+/* Блок "Самочувствие" в превью дня: что отмечено и кнопка в шторку. */
+.day-sym {
+  width: 100%;
+  margin-top: var(--space-sm);
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.day-sym-text {
+  margin: var(--space-xs) 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.day-sym-text.is-muted {
+  color: var(--text-muted);
+}
+
+/* Шторка отметки самочувствия (modal-symptoms). Выезжает снизу, как форма
+   отметки менструации. Содержимое прокручивается внутри карточки, ряд кнопок
+   прилипает к низу: "Сохранить" видна при любой прокрутке. */
+#modal-symptoms {
+  align-items: flex-end;
+}
+
+#modal-symptoms .modal-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding-bottom: 0;
+  animation: slide-up 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sym-date {
+  margin-top: calc(-1 * var(--space-sm));
+  margin-bottom: var(--space-md);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.sym-section + .sym-section,
+.sym-note {
+  margin-top: 20px;
+}
+
+.sym-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+/* Вариант не ниже 44px: меньше палец не попадает. Подпись может уйти в две строки.
+   Выбранный вариант отличается фоном и рамкой, а не жирностью: жирный шрифт
+   шире и переносил бы подпись на лету. */
+.sym-chip {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-sm) 12px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--text-primary);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sym-chip.is-wide {
+  margin-top: var(--space-sm);
+}
+
+.sym-chip[aria-pressed="true"] {
+  background: rgba(232, 165, 160, 0.2);
+  border-color: var(--color-menstruation);
+}
+
+.sym-note textarea {
+  width: 100%;
+}
+
+.sym-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: 12px 0 max(env(safe-area-inset-bottom), var(--space-md));
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-soft);
+}
+
+.sym-foot button {
+  padding: 12px 20px;
+  font-size: 14px;
+  min-height: 44px;
+}
+
+.sym-confirm-text {
+  flex: 1 1 100%;
+  font-size: 14px;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+#modal-symptoms button:disabled,
+#modal-symptoms textarea:disabled {
+  opacity: 0.5;
+}
+
 /* === 9. Toast === */
 
 .toast-container {
