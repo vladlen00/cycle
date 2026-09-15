@@ -556,7 +556,7 @@ async function handleSymptomsSave(
 
   let note: string | null = null;
   if (payload.note !== undefined && payload.note !== null) {
-    if (typeof payload.note !== "string" || payload.note.includes(" ")) {
+    if (typeof payload.note !== "string" || payload.note.includes(String.fromCharCode(0))) {
       return errorResponse(origin, 400, "Invalid note", "invalid_note");
     }
     const trimmed = payload.note.trim();
