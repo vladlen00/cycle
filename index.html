@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Raleway:wght@200;300;400&display=swap">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <script src="telegram-web-app.js"></script>
 </head>
 <body>
@@ -35,6 +35,23 @@
       </div>
       <div class="cycle-prediction" id="cycle-prediction">--</div>
       <button class="btn-primary" data-action="open-record">Отметить менструацию</button>
+      <!-- Вопрос о длительности менструации. Виден на 8-14 день цикла, если в текущей
+           отметке стоит пятёрка по умолчанию. Решает app.js в renderLengthAsk. -->
+      <div class="len-ask" id="len-ask" hidden>
+        <button type="button" class="len-ask-close" data-action="len-ask-close" aria-label="Закрыть вопрос">
+          <span aria-hidden="true">×</span>
+        </button>
+        <div class="len-ask-title">Сколько дней шла менструация?</div>
+        <div class="len-ask-note" id="len-ask-note"></div>
+        <div class="len-ask-options">
+          <button type="button" class="len-ask-opt" data-action="len-ask-pick" data-len="3">3</button>
+          <button type="button" class="len-ask-opt" data-action="len-ask-pick" data-len="4">4</button>
+          <button type="button" class="len-ask-opt" data-action="len-ask-pick" data-len="5">5</button>
+          <button type="button" class="len-ask-opt" data-action="len-ask-pick" data-len="6">6</button>
+          <button type="button" class="len-ask-opt" data-action="len-ask-pick" data-len="7">7</button>
+        </div>
+        <button type="button" class="len-ask-other" data-action="len-ask-other">другое</button>
+      </div>
     </section>
 
     <section class="screen" data-screen="calendar" hidden>
@@ -98,7 +115,7 @@
         <input type="date" name="start_date" required>
       </label>
       <label class="form-field">
-        <span class="form-label">Длительность (дней)</span>
+        <span class="form-label" id="len-label">Длительность (дней)</span>
         <input type="number" name="menstruation_length_days" min="1" max="14" value="5" required inputmode="numeric">
       </label>
       <label class="form-field">
@@ -167,7 +184,7 @@
 
 <script src="cycleCalc.js?v=2"></script>
 <script src="auth.js?v=1"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 
 </body>
 </html>

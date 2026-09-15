@@ -14,6 +14,30 @@
   const RING_CIRCUMFERENCE = 540.4; // 2*pi*86, синхронно с stroke-dasharray в HTML
   const UNDO_TOAST_MS = 5000;    // окно, в котором можно отменить только что созданную отметку
 
+  // Длительность менструации почти никто не правит: в форме стоит 5, и календарь
+  // рисует пять дней там, где было три. Поэтому спрашиваем, двумя дорогами.
+  // Отметка задним числом: длина уже известна, поле в форме пустое и обязательное.
+  // Отметка вовремя: с 8 по 14 день цикла на "Сегодня" карточка с вопросом.
+  // К восьмому дню менструация кончилась почти у всех, через две недели число
+  // вспоминается хуже. Спрашиваем только про пятёрку: другое число это уже выбор.
+  // Граница у дорог общая: дата на 7 дней раньше сегодня это и есть день цикла 8.
+  const LEN_ASK_DEFAULT = 5;
+  const LEN_ASK_FROM_DAY = 8;
+  const LEN_ASK_TO_DAY = 14;
+  const RETRO_MIN_DAYS = LEN_ASK_FROM_DAY - 1;
+  const LEN_LABEL_DEFAULT = 'Длительность (дней)';
+  const LEN_LABEL_RETRO = 'Сколько дней шла?';
+  // Флажки хранят id цикла, к которому относятся: новый цикл даёт новый id, и
+  // вопрос открывается сам, чистить старое не нужно. Приставка cycle. отделяет
+  // ключи от токена в auth.js и от соседних мини-аппов на том же github.io.
+  const LEN_ASK_DONE_KEY = 'cycle.lenAsk.done';     // ответила, закрыла или ушла в форму
+  const LEN_ASK_LANDED_KEY = 'cycle.lenAsk.landed'; // уже открывали "Сегодня" ради вопроса
+  // Пока висит вопрос, кольцо на низком экране ужимается, но не меньше RING_MIN_SIZE:
+  // дальше пусть будет прокрутка. Ниже RING_COMPACT_SIZE номер дня и фаза мельче.
+  const RING_MIN_SIZE = 140;
+  const RING_COMPACT_SIZE = 220;
+  const RING_TINY_SIZE = 170;    // ниже название фазы прячем: под центром кольцо уже, и оно не влезает
+
   // Картинка с датами цикла. Геометрия в логических единицах, одна и та же для
   // всех трёх периодов: меняется только сетка месяцев и итоговый масштаб.
   // Масштаб подбирается так, чтобы длинная сторона не вышла за SHARE_MAX_SIDE -
@@ -79,6 +103,7 @@
 
   function cacheDom() {
     $.app = document.querySelector('.app');
+    $.appMain = document.querySelector('.app-main');
     $.screens = document.querySelectorAll('.screen');
     $.navBtns = document.querySelectorAll('.nav-btn');
 
@@ -87,6 +112,8 @@
     $.cyclePrediction = document.getElementById('cycle-prediction');
     $.ringProgress = document.querySelector('.ring-progress');
     $.ringWrap = document.querySelector('.cycle-ring-wrap');
+    $.lenAsk = document.getElementById('len-ask');
+    $.lenAskNote = document.getElementById('len-ask-note');
 
     $.calendarList = document.getElementById('calendar-list');
 
@@ -97,6 +124,7 @@
     $.recordTitle = document.getElementById('record-title');
     $.formRecord = document.getElementById('form-record');
     $.btnDeleteRecord = $.formRecord.querySelector('[data-action="delete-record"]');
+    $.lenLabel = document.getElementById('len-label');
 
     $.modalConfirm = document.getElementById('modal-confirm');
     $.confirmTitle = document.getElementById('confirm-title');
@@ -220,6 +248,93 @@
     if (handle) state.undoCreate = { id: id, el: handle.el, timer: handle.timer };
   }
 
+  function formatDays(n) {
+    return n + ' ' + pluralize(n, ['день', 'дня', 'дней']);
+  }
+
+  // === Вопрос о длительности ===
+
+  // Память на время сессии: сюда пишется всегда, localStorage поверх неё.
+  const memoryFlags = {};
+
+  function readFlag(key) {
+    if (Object.prototype.hasOwnProperty.call(memoryFlags, key)) return memoryFlags[key];
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  // true только если значение легло в localStorage и читается обратно.
+  function writeFlag(key, value) {
+    memoryFlags[key] = value;
+    try {
+      localStorage.setItem(key, value);
+      return localStorage.getItem(key) === value;
+    } catch {
+      return false;
+    }
+  }
+
+  // Текущий цикл, про который сейчас уместно спросить длительность, иначе null.
+  function getLengthAskCycle(today) {
+    const current = CycleCalc.getCurrentCycle(state.cycles, today);
+    if (!current || current.menstruation_length_days !== LEN_ASK_DEFAULT) return null;
+    const day = CycleCalc.getCurrentCycleDay(current, today);
+    if (day < LEN_ASK_FROM_DAY || day > LEN_ASK_TO_DAY) return null;
+    if (readFlag(LEN_ASK_DONE_KEY) === String(current.id)) return null;
+    return current;
+  }
+
+  function markLengthAsked(id) {
+    if (id) writeFlag(LEN_ASK_DONE_KEY, String(id));
+  }
+
+  // Флажок один на всех, поэтому ставим его только текущему циклу: правка
+  // старой записи не должна гасить вопрос про нынешний.
+  function markLengthAskedIfCurrent(id) {
+    const current = CycleCalc.getCurrentCycle(state.cycles, getToday());
+    if (current && current.id === id) markLengthAsked(id);
+  }
+
+  function renderLengthAsk(today) {
+    if (!$.lenAsk) return;
+    const cycle = getLengthAskCycle(today);
+    if (cycle) {
+      $.lenAsk.dataset.id = cycle.id;
+      $.lenAskNote.textContent = 'Сейчас записано ' + formatDays(cycle.menstruation_length_days);
+      $.lenAsk.removeAttribute('hidden');
+    } else {
+      $.lenAsk.setAttribute('hidden', '');
+      delete $.lenAsk.dataset.id;
+    }
+    fitRingToLengthAsk();
+  }
+
+  // Пока висит вопрос, на низком экране кольцо ужимается ровно настолько, чтобы
+  // карточка встала без прокрутки. На обычном экране всё помещается и так, и
+  // кольцо не меняется. Размер меряем, а не угадываем: высоту решают и окно
+  // Телеграма, и кнопка возврата на вебе, и перенос строк в карточке.
+  function fitRingToLengthAsk() {
+    if (!$.ringWrap || !$.appMain) return;
+    $.ringWrap.style.removeProperty('width');
+    $.ringWrap.classList.remove('is-compact', 'is-tiny');
+    // offsetParent null: карточка скрыта или экран "Сегодня" сейчас не на виду.
+    if (!$.lenAsk || $.lenAsk.hidden || $.lenAsk.offsetParent === null) return;
+    const overflow = $.appMain.scrollHeight - $.appMain.clientHeight;
+    if (overflow <= 0) return;
+    const size = Math.max(RING_MIN_SIZE, Math.floor($.ringWrap.offsetWidth - overflow - 4));
+    $.ringWrap.style.width = size + 'px';
+    $.ringWrap.classList.toggle('is-compact', size < RING_COMPACT_SIZE);
+    $.ringWrap.classList.toggle('is-tiny', size < RING_TINY_SIZE);
+  }
+
+  function setLengthAskBusy(busy) {
+    if (!$.lenAsk) return;
+    $.lenAsk.querySelectorAll('button').forEach((b) => { b.disabled = busy; });
+  }
+
   // === Render ===
 
   function setScreen(name) {
@@ -266,6 +381,7 @@
 
   function renderMain() {
     const today = getToday();
+    renderLengthAsk(today);
     const current = CycleCalc.getCurrentCycle(state.cycles, today);
 
     if (!current) {
@@ -583,9 +699,37 @@
 
   // === Modals ===
 
+  // При отметке задним числом длительность уже известна, и подставленная пятёрка
+  // становится неправдой, которую потом никто не поправит. Поэтому поле пустое и
+  // обязательное, с прямым вопросом. Только при создании: у правки число своё.
+  // Введённое руками не трогаем, как бы ни менялась дата. Повторный вызов с той
+  // же датой ничего не делает, поэтому годится и на input, и на change.
+  function syncRetroLength() {
+    const form = $.formRecord;
+    if (form.elements.id.value) return;
+    let retro = false;
+    try {
+      const start = CycleCalc.parseDate(form.elements.start_date.value);
+      retro = CycleCalc.daysBetween(start, getToday()) >= RETRO_MIN_DAYS;
+    } catch {
+      // дата пустая или недописанная - считаем, что не задним числом
+    }
+    if (retro === (form.dataset.retro === '1')) return;
+    form.dataset.retro = retro ? '1' : '';
+    $.lenLabel.textContent = retro ? LEN_LABEL_RETRO : LEN_LABEL_DEFAULT;
+    const input = form.elements.menstruation_length_days;
+    if (input.dataset.touched === '1') return;
+    input.value = retro ? '' : String(LEN_ASK_DEFAULT);
+  }
+
   function openRecordModal(opts) {
     const cycle = (opts && opts.cycle) || null;
     const form = $.formRecord;
+
+    // Режим "задним числом" и отметка о ручном вводе считаются заново при каждом открытии.
+    form.dataset.retro = '';
+    $.lenLabel.textContent = LEN_LABEL_DEFAULT;
+    delete form.elements.menstruation_length_days.dataset.touched;
 
     if (cycle) {
       $.recordTitle.textContent = 'Изменить запись';
@@ -605,6 +749,7 @@
     }
 
     form.elements.start_date.max = CycleCalc.formatDate(getToday());
+    syncRetroLength();
 
     $.modalRecord.removeAttribute('hidden');
   }
@@ -1046,6 +1191,9 @@
     const start_date = form.elements.start_date.value;
     const lenRaw = form.elements.menstruation_length_days.value;
     const notesRaw = form.elements.notes.value.trim();
+    // Длительность вписана руками. Только тогда число считается ответом на вопрос:
+    // сохранение правки ради даты или заметки пятёрку не подтверждает.
+    const lenChosen = form.elements.menstruation_length_days.dataset.touched === '1';
 
     if (!start_date) {
       showToast('Укажи дату');
@@ -1086,6 +1234,8 @@
       }
       closeRecordModal();
       await loadCycles();
+      // Число выбрано в форме: спрашивать о нём ещё и карточкой незачем.
+      if (lenChosen) markLengthAskedIfCurrent(id || createdId);
       render();
     } catch (err) {
       createdId = null;
@@ -1139,6 +1289,82 @@
       return;
     }
     openRecordModal({ cycle: cycle });
+  }
+
+  // Правка одной длительности. update частичный: дата и заметки не трогаются.
+  // true - сервер записал. Экран перерисовывает вызывающий.
+  async function saveLength(id, len, failText) {
+    if (state.isLoading) return false;
+    state.isLoading = true;
+    setLengthAskBusy(true);
+    let saved = false;
+    try {
+      const res = await CyclesApi.update({ id: id, menstruation_length_days: len });
+      if (res && res.affected === 0) {
+        showToast('Запись не найдена');
+      } else {
+        saved = true;
+        // Сразу и локально: если перечитать список не выйдет, экран всё равно
+        // покажет записанное число, а не прежнее.
+        const local = state.cycles.find((c) => c.id === id);
+        if (local) local.menstruation_length_days = len;
+      }
+      try {
+        await loadCycles();
+      } catch {
+        // тост уже показан в loadCycles
+      }
+    } catch (err) {
+      if (err && err.message !== 'token_expired') showToast(failText);
+    } finally {
+      state.isLoading = false;
+      setLengthAskBusy(false);
+    }
+    return saved;
+  }
+
+  async function handleLengthPick(id, len) {
+    if (state.isLoading) return;
+    const cycle = state.cycles.find((c) => c.id === id);
+    if (!cycle) {
+      renderMain();
+      return;
+    }
+    const prev = cycle.menstruation_length_days;
+    if (len === prev) {
+      // То же число: писать нечего, это подтверждение.
+      markLengthAsked(id);
+      renderMain();
+      showToast('Спасибо, так и оставим');
+      return;
+    }
+    const saved = await saveLength(id, len, 'Не удалось сохранить');
+    if (saved) markLengthAsked(id);
+    render();
+    if (!saved) return;
+    // Смену можно откатить: число, ткнутое лишь бы убрать карточку, не должно
+    // молча портить прогноз.
+    const handle = showToast('Готово: ' + formatDays(len), {
+      duration: UNDO_TOAST_MS,
+      actionLabel: 'Вернуть',
+      onAction: async () => {
+        const back = await saveLength(id, prev, 'Не удалось вернуть');
+        if (handle) {
+          clearTimeout(handle.timer);
+          dismissToast(handle.el);
+        }
+        render();
+        if (back) showToast('Снова ' + formatDays(prev));
+      },
+    });
+  }
+
+  // Нужного числа нет среди 3-7: открываем обычную правку записи. Ушла в форму -
+  // вопрос считаем отвеченным, даже если закроет без сохранения: число перед ней.
+  function handleLengthOther(id) {
+    markLengthAsked(id);
+    renderMain();
+    handleOpenEdit(id);
   }
 
   // === Events (делегирование) ===
@@ -1210,6 +1436,25 @@
           if (typeof fn === 'function') fn();
           break;
         }
+        case 'len-ask-pick': {
+          const id = $.lenAsk.dataset.id;
+          const len = parseInt(actionEl.dataset.len, 10);
+          if (id && Number.isInteger(len)) handleLengthPick(id, len);
+          break;
+        }
+        case 'len-ask-close': {
+          const id = $.lenAsk.dataset.id;
+          if (id) {
+            markLengthAsked(id);
+            renderMain();
+          }
+          break;
+        }
+        case 'len-ask-other': {
+          const id = $.lenAsk.dataset.id;
+          if (id) handleLengthOther(id);
+          break;
+        }
       }
     });
 
@@ -1217,6 +1462,17 @@
       e.preventDefault();
       handleSubmitRecord(e.target);
     });
+
+    // Поле даты в разных WebView шлёт то input, то change, слушаем оба.
+    const startInput = $.formRecord.elements.start_date;
+    startInput.addEventListener('input', syncRetroLength);
+    startInput.addEventListener('change', syncRetroLength);
+    $.formRecord.elements.menstruation_length_days.addEventListener('input', (e) => {
+      e.target.dataset.touched = '1';
+    });
+
+    // Окно Телеграма меняет высоту (разворот, поворот), кольцо под карточкой пересчитываем.
+    window.addEventListener('resize', fitRingToLengthAsk);
   }
 
   // === Loading ===
@@ -1248,7 +1504,17 @@
       // toast уже показан в loadCycles (если не token_expired).
     }
 
-    const defaultScreen = state.cycles.length > 0 ? 'calendar' : 'main';
+    let defaultScreen = state.cycles.length > 0 ? 'calendar' : 'main';
+    // С отметками приложение открывается на календаре, и вопрос с "Сегодня" никто
+    // бы не увидел. Поэтому раз за окно открываем "Сегодня". Только первый заход:
+    // иначе карточка стала бы заслоном, который проще убрать случайным числом.
+    // Если флажок не сохраняется, не перебрасываем вовсе: без памяти на
+    // "Сегодня" вело бы каждое открытие.
+    const ask = getLengthAskCycle(getToday());
+    if (ask && readFlag(LEN_ASK_LANDED_KEY) !== String(ask.id)
+        && writeFlag(LEN_ASK_LANDED_KEY, String(ask.id))) {
+      defaultScreen = 'main';
+    }
     setScreen(defaultScreen);
     $.app.removeAttribute('hidden');
 
@@ -1256,6 +1522,14 @@
     if (!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData)) {
       const ab = document.getElementById('appBackBtn');
       if (ab) ab.style.display = 'inline-flex';
+    }
+
+    // Кольцо под карточкой меряется только на видимой странице: при первом рендере
+    // .app ещё скрыт, а кнопка возврата выше отнимает высоту. Шрифты меняют
+    // перенос строк в карточке, после их загрузки меряем ещё раз.
+    fitRingToLengthAsk();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(fitRingToLengthAsk).catch(() => {});
     }
   }
 

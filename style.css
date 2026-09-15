@@ -263,6 +263,26 @@ html, body {
   transition: color 0.4s ease;
 }
 
+/* Кольцо, ужатое под вопрос о длительности на низком экране (app.js,
+   fitRingToLengthAsk). Номер дня и фаза мельче, иначе вылезают за дорожку. */
+.cycle-ring-wrap.is-compact .cycle-day {
+  font-size: 44px;
+}
+
+.cycle-ring-wrap.is-compact .cycle-phase {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+/* Совсем маленькое кольцо: фаза стоит под центром, где кольцо уже, и длинное
+   "ФОЛЛИКУЛЯРНАЯ" упирается в дорожку. Запас при уменьшенном шрифте выходил
+   в несколько пикселей, а на живом iPhone шрифт может лечь шире. Поэтому фазу
+   прячем, номер дня остаётся. Фаза видна на календаре, а ужатое кольцо бывает
+   несколько дней за цикл и только на маленьких экранах. */
+.cycle-ring-wrap.is-tiny .cycle-phase {
+  display: none;
+}
+
 .cycle-prediction {
   font-family: var(--font-display);
   font-style: italic;
@@ -270,6 +290,91 @@ html, body {
   color: var(--text-muted);
   text-align: center;
   margin-top: calc(-1 * var(--space-sm));
+}
+
+/* Вопрос о длительности менструации (экран "Сегодня", под главной кнопкой).
+   Нарочно без акцента: ни одна кнопка не розовая и не выделена, иначе число
+   читается как "ОК" и его тычут, лишь бы убрать карточку. */
+
+.len-ask {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  margin-top: var(--space-sm);
+  padding: var(--space-md) var(--space-md) var(--space-xs);
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+  animation: fade-in 200ms ease;
+}
+
+.len-ask-close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-muted);
+  border-radius: 50%;
+}
+
+.len-ask-close:active {
+  background: var(--bg-subtle);
+}
+
+.len-ask-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(17px, 4.6vw, 19px);
+  color: var(--text-primary);
+  padding: 0 36px; /* текст не заходит под крестик и остаётся по центру */
+}
+
+.len-ask-note {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.len-ask-options {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.len-ask-opt {
+  min-height: 44px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text-primary);
+  transition: background var(--transition-fast);
+}
+
+.len-ask-opt:active {
+  background: var(--bg-subtle);
+}
+
+.len-ask-other {
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.len-ask button:disabled {
+  opacity: 0.5;
 }
 
 /* Buttons */
