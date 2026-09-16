@@ -695,7 +695,8 @@
 
   // Легенда прячется целиком, когда в ней не осталось ни одного пункта: пустая
   // белая полоса липнет к верху экрана и читается как поломка. Фазовые пункты
-  // держатся на отметках менструации, пятая строка на отметках самочувствия.
+  // держатся на отметках менструации, пятая строка на отметках самочувствия, а
+  // подсказка про тап живёт здесь же, пока не отмечен ни один день.
   // Вызов идемпотентный, зовут дважды: из renderCalendar (могли смениться циклы)
   // и из paintSymptomDots (могла смениться пятая строка). Ранний выход покраски
   // при статусе не 'ok' ничего не ломает: пятая строка там не меняется.
@@ -704,7 +705,8 @@
     const hasPhases = state.cycles.length > 0;
     $.calendarLegend.classList.toggle('no-phases', !hasPhases);
     const hasSym = !!$.legendSym && !$.legendSym.hidden;
-    if (hasPhases || hasSym) $.calendarLegend.removeAttribute('hidden');
+    const hasHint = !!$.calendarHint && !$.calendarHint.hidden;
+    if (hasPhases || hasSym || hasHint) $.calendarLegend.removeAttribute('hidden');
     else $.calendarLegend.setAttribute('hidden', '');
   }
 
