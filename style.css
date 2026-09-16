@@ -473,12 +473,32 @@ html, body {
   gap: var(--space-sm);
 }
 
+/* Заголовок липнет сразу под легендой: при прокрутке всегда видно, какой месяц
+   перед глазами. Липнет в пределах своего .calendar-month, поэтому следующий
+   месяц вытесняет его сам. Высоту легенды меряет app.js (measureLegendHeight),
+   константой её не задать: она зависит от числа пунктов, подсказки и переносов.
+   Фон обязателен, иначе сквозь заголовок поедут числа. z-index ниже легенды:
+   уезжая, заголовок уходит ПОД неё. Дни недели не липкие намеренно: их порядок
+   всегда один, а название месяца меняется. */
 .calendar-month-title {
+  position: sticky;
+  top: var(--legend-h, 0px);
+  z-index: 4;
+  padding-block: 4px;
+  background: var(--bg-primary);
   font-family: var(--font-display);
   font-style: italic;
   font-size: clamp(17px, 4.5vw, 20px);
   text-align: center;
   color: var(--text-primary);
+}
+
+/* Посадка автоскролла: месяц встаёт ниже легенды, видны и название, и ПН ВТ СР.
+   + var(--space-md): липкая легенда отсчитывает top от края с учётом отступа
+   .app-main, а scrollIntoView этот отступ не учитывает. Без него месяц садился
+   на 16px выше, и липкий заголовок накрывал верх строки дней недели. */
+.calendar-month {
+  scroll-margin-top: calc(var(--legend-h, 0px) + var(--space-md) + 4px);
 }
 
 .calendar-weekdays,
@@ -627,6 +647,9 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 5;
+  /* Закрывает полосу отступа .app-main над липкой легендой: иначе сквозь неё
+     видны уехавшие числа. */
+  box-shadow: 0 calc(-1 * var(--space-md)) 0 var(--bg-primary);
 }
 
 .legend-item {
@@ -667,12 +690,6 @@ html, body {
   border-radius: 50%;
   background: var(--color-sym-mark);
   flex-shrink: 0;
-}
-
-/* Фазовые пункты держатся на отметках менструации: без них фаз в календаре нет и
-   объяснять нечего. Класс на контейнер ставит renderCalendar. */
-.calendar-legend.no-phases .legend-phase {
-  display: none;
 }
 
 /* Подсказка живёт внутри липкой легенды отдельной строкой на всю ширину. Видна,

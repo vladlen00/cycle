@@ -168,6 +168,7 @@
     $.calendarLegend = document.getElementById('calendar-legend');
     $.calendarHint = document.getElementById('calendar-hint');
     $.legendSym = document.getElementById('legend-sym');
+    $.legendPhaseItems = document.querySelectorAll('.legend-phase[data-phase]');
 
     $.historyList = document.getElementById('history-list');
     $.historyEmpty = document.getElementById('history-empty');
@@ -537,6 +538,10 @@
 
     if (currentMonthEl) {
       requestAnimationFrame(() => {
+        // Мерить именно здесь: при первом открытии renderCalendar работает, пока
+        // .app ещё скрыт, и замер в updateCalendarLegend пропускается. К этому
+        // кадру init уже открыл .app, и scroll-margin-top получит настоящую высоту.
+        measureLegendHeight();
         currentMonthEl.scrollIntoView({ block: 'start', behavior: 'auto' });
       });
     }
@@ -702,12 +707,42 @@
   // при статусе не 'ok' ничего не ломает: пятая строка там не меняется.
   function updateCalendarLegend() {
     if (!$.calendarLegend) return;
-    const hasPhases = state.cycles.length > 0;
-    $.calendarLegend.classList.toggle('no-phases', !hasPhases);
+    // Пункт фазы виден, только если такая фаза реально нарисована в построенном
+    // календаре. Наличие отметок не годится: при одной отметке типичная длина
+    // неизвестна, рисуется одна менструация, и легенда объясняла бы три фазы,
+    // которых на экране нет. Прогнозные клетки тоже несут data-phase и считаются.
+    let phasesShown = 0;
+    for (const item of $.legendPhaseItems) {
+      const drawn = !!$.calendarList.querySelector(
+        '.calendar-cell[data-phase="' + item.dataset.phase + '"]'
+      );
+      if (drawn) {
+        item.removeAttribute('hidden');
+        phasesShown++;
+      } else {
+        item.setAttribute('hidden', '');
+      }
+    }
+    // Класс нужен только разделителю над подсказкой: линия уместна, когда над ней
+    // есть хоть один пункт фазы.
+    $.calendarLegend.classList.toggle('no-phases', phasesShown === 0);
     const hasSym = !!$.legendSym && !$.legendSym.hidden;
     const hasHint = !!$.calendarHint && !$.calendarHint.hidden;
-    if (hasPhases || hasSym || hasHint) $.calendarLegend.removeAttribute('hidden');
+    if (phasesShown > 0 || hasSym || hasHint) $.calendarLegend.removeAttribute('hidden');
     else $.calendarLegend.setAttribute('hidden', '');
+    // Любая смена легенды (сборка календаря, отметки загрузились, сохранение)
+    // меняет её высоту, а от высоты зависят липкий заголовок и посадка скролла.
+    measureLegendHeight();
+  }
+
+  // Высота легенды в --legend-h на списке месяцев: от неё отступает липкий
+  // заголовок месяца и посадка автоскролла. Пока экран календаря скрыт, мерить
+  // нечего: offsetHeight дал бы 0 и затёр бы верное значение, поэтому выходим.
+  // Скрытая сама по себе легенда (пунктов нет) даёт честный 0, и он годится.
+  function measureLegendHeight() {
+    if (!$.calendarLegend || !$.calendarList) return;
+    if ($.calendarList.offsetParent === null) return;
+    $.calendarList.style.setProperty('--legend-h', $.calendarLegend.offsetHeight + 'px');
   }
 
   function renderHistory() {
@@ -1936,6 +1971,8 @@
 
     // Окно Телеграма меняет высоту (разворот, поворот), кольцо под карточкой пересчитываем.
     window.addEventListener('resize', fitRingToLengthAsk);
+    // Узкое окно переносит строки легенды, и она становится выше.
+    window.addEventListener('resize', measureLegendHeight);
   }
 
   // === Loading ===
@@ -2037,7 +2074,10 @@
     // перенос строк в карточке, после их загрузки меряем ещё раз.
     fitRingToLengthAsk();
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(fitRingToLengthAsk).catch(() => {});
+      document.fonts.ready.then(() => {
+        fitRingToLengthAsk();
+        measureLegendHeight();
+      }).catch(() => {});
     }
   }
 
