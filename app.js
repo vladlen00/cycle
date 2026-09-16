@@ -650,18 +650,17 @@
   // отметила день, значит он отмечен.
   function paintSymptomDots() {
     if (!$.calendarList) return;
-    // Загрузка упала: уже нарисованные точки не трогаем вовсе. Данные целы, мы их
-    // просто не перезапросили, а точки, исчезающие с экрана, читаются как
-    // потерянные отметки.
-    if (state.symptomsStatus === 'error') return;
-    // Пока идёт загрузка, точек нет: клетка не умеет сказать "не знаю", а пустой
-    // угол читался бы как "не отмечено". Про загрузку и сбой честно говорит
+    // Красим только по достоверной карте. Пока статус не 'ok', уже нарисованные
+    // точки не трогаем вовсе: данные целы, мы их просто не перезапросили, а
+    // точки, исчезающие с экрана, читаются как потерянные отметки. 'loading'
+    // здесь наравне с 'error': на повторной загрузке карта ещё держит прошлый
+    // успешный ответ и пустой она НЕ бывает. Про загрузку и сбой честно говорит
     // превью дня.
-    const ready = state.symptomsStatus === 'ok';
+    if (state.symptomsStatus !== 'ok') return;
     let marked = 0;
 
     for (const cell of $.calendarList.querySelectorAll('.calendar-cell[data-date]')) {
-      const has = ready && state.symptomsByDate.has(cell.dataset.date);
+      const has = state.symptomsByDate.has(cell.dataset.date);
       const dot = cell.querySelector('.cell-sym');
       if (has) {
         marked++;
