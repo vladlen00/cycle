@@ -669,6 +669,23 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Фазовые пункты держатся на отметках менструации: без них фаз в календаре нет и
+   объяснять нечего. Класс на контейнер ставит renderCalendar. */
+.calendar-legend.no-phases .legend-phase {
+  display: none;
+}
+
+/* Подсказка над календарём. Видна, только пока нет ни одной отметки
+   самочувствия. Прячется атрибутом hidden, своего display нет намеренно. */
+.calendar-hint {
+  margin-bottom: 14px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-muted);
+}
+
 .legend-heart {
   width: 14px;
   height: 13px;

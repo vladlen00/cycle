@@ -165,6 +165,8 @@
     $.lenAskNote = document.getElementById('len-ask-note');
 
     $.calendarList = document.getElementById('calendar-list');
+    $.calendarLegend = document.getElementById('calendar-legend');
+    $.calendarHint = document.getElementById('calendar-hint');
     $.legendSym = document.getElementById('legend-sym');
 
     $.historyList = document.getElementById('history-list');
@@ -495,12 +497,10 @@
   function renderCalendar() {
     if (!$.calendarList) return;
     $.calendarList.innerHTML = '';
-    // Записей нет, клеток нет: покраска пройдёт по пустому списку и уберёт пятую
-    // строку легенды, если та осталась с прошлого показа.
-    if (state.cycles.length === 0) {
-      paintSymptomDots();
-      return;
-    }
+    // Месяцы рисуются и без единой отметки менструации: иначе женщина, которая
+    // пришла отмечать самочувствие, видит пустой экран, и тапнуть ей не по чему.
+    // getCalendarPhases с пустым списком возвращает пустую карту, клетки выходят
+    // обычными числами, а превью дня и шторка самочувствия работают как есть.
 
     const today = getToday();
     const todayY = today.getUTCFullYear();
@@ -533,6 +533,7 @@
     }
 
     paintSymptomDots();
+    updateCalendarLegend();
 
     if (currentMonthEl) {
       requestAnimationFrame(() => {
@@ -680,6 +681,31 @@
       if (marked > 0) $.legendSym.removeAttribute('hidden');
       else $.legendSym.setAttribute('hidden', '');
     }
+
+    // Подсказка про тап по дню, пока не отмечено ни одного дня. Считаем по всей
+    // загруженной карте, а не по нарисованным точкам: календарь мог быть ещё не
+    // построен, и подсказка встала бы женщине, у которой отметки есть.
+    if ($.calendarHint) {
+      if (state.symptomsByDate.size === 0) $.calendarHint.removeAttribute('hidden');
+      else $.calendarHint.setAttribute('hidden', '');
+    }
+
+    updateCalendarLegend();
+  }
+
+  // Легенда прячется целиком, когда в ней не осталось ни одного пункта: пустая
+  // белая полоса липнет к верху экрана и читается как поломка. Фазовые пункты
+  // держатся на отметках менструации, пятая строка на отметках самочувствия.
+  // Вызов идемпотентный, зовут дважды: из renderCalendar (могли смениться циклы)
+  // и из paintSymptomDots (могла смениться пятая строка). Ранний выход покраски
+  // при статусе не 'ok' ничего не ломает: пятая строка там не меняется.
+  function updateCalendarLegend() {
+    if (!$.calendarLegend) return;
+    const hasPhases = state.cycles.length > 0;
+    $.calendarLegend.classList.toggle('no-phases', !hasPhases);
+    const hasSym = !!$.legendSym && !$.legendSym.hidden;
+    if (hasPhases || hasSym) $.calendarLegend.removeAttribute('hidden');
+    else $.calendarLegend.setAttribute('hidden', '');
   }
 
   function renderHistory() {
