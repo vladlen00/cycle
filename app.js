@@ -165,6 +165,7 @@
     $.lenAskNote = document.getElementById('len-ask-note');
 
     $.calendarList = document.getElementById('calendar-list');
+    $.legendSym = document.getElementById('legend-sym');
 
     $.historyList = document.getElementById('history-list');
     $.historyEmpty = document.getElementById('history-empty');
@@ -494,7 +495,12 @@
   function renderCalendar() {
     if (!$.calendarList) return;
     $.calendarList.innerHTML = '';
-    if (state.cycles.length === 0) return;
+    // Записей нет, клеток нет: покраска пройдёт по пустому списку и уберёт пятую
+    // строку легенды, если та осталась с прошлого показа.
+    if (state.cycles.length === 0) {
+      paintSymptomDots();
+      return;
+    }
 
     const today = getToday();
     const todayY = today.getUTCFullYear();
@@ -525,6 +531,8 @@
         currentMonthEl = el;
       }
     }
+
+    paintSymptomDots();
 
     if (currentMonthEl) {
       requestAnimationFrame(() => {
@@ -629,6 +637,50 @@
 
     block.appendChild(grid);
     return block;
+  }
+
+  // Точка в углу клетки у дня с отметкой самочувствия и пятая строка легенды.
+  // Календарь при этом НЕ пересобирается: renderCalendar чистит список и уезжает
+  // скроллом на текущий месяц, а красить надо и после загрузки отметок, и сразу
+  // после сохранения, когда женщина уже листает свой месяц. Пересборка выбросила
+  // бы её из него.
+  //
+  // Отмеченный день это наличие строки в symptomsByDate. Сюда попадает и "Всё в
+  // порядке", и день с одними выделениями, и день с одной заметкой: женщина
+  // отметила день, значит он отмечен.
+  function paintSymptomDots() {
+    if (!$.calendarList) return;
+    // Загрузка упала: уже нарисованные точки не трогаем вовсе. Данные целы, мы их
+    // просто не перезапросили, а точки, исчезающие с экрана, читаются как
+    // потерянные отметки.
+    if (state.symptomsStatus === 'error') return;
+    // Пока идёт загрузка, точек нет: клетка не умеет сказать "не знаю", а пустой
+    // угол читался бы как "не отмечено". Про загрузку и сбой честно говорит
+    // превью дня.
+    const ready = state.symptomsStatus === 'ok';
+    let marked = 0;
+
+    for (const cell of $.calendarList.querySelectorAll('.calendar-cell[data-date]')) {
+      const has = ready && state.symptomsByDate.has(cell.dataset.date);
+      const dot = cell.querySelector('.cell-sym');
+      if (has) {
+        marked++;
+        if (!dot) {
+          const span = document.createElement('span');
+          span.className = 'cell-sym';
+          cell.appendChild(span);
+        }
+      } else if (dot) {
+        dot.remove();
+      }
+    }
+
+    // Строка легенды по числу нарисованных точек, а не по отдельному проходу по
+    // датам: "за видимый период есть отметки" это ровно то, что видно на экране.
+    if ($.legendSym) {
+      if (marked > 0) $.legendSym.removeAttribute('hidden');
+      else $.legendSym.setAttribute('hidden', '');
+    }
   }
 
   function renderHistory() {
@@ -1201,6 +1253,8 @@
     } else {
       state.symptomsByDate.delete(iso);
     }
+    // Точка за этот день появляется или уходит сразу, скролл календаря на месте.
+    paintSymptomDots();
     setSymptomsSaving(false);
     closeSymptomsSheet();
     showToast(res && res.day ? 'Сохранено' : 'Отметки дня удалены');
@@ -1906,6 +1960,8 @@
       if (seq !== symptomsLoadSeq) return;
       state.symptomsStatus = 'error';
     }
+    // Календарь мог отрисоваться раньше ответа: доставить точки на место.
+    paintSymptomDots();
     // Превью могли открыть, пока шли отметки: перерисовать его с настоящим ответом.
     refreshOpenDayModal();
   }

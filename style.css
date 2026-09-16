@@ -22,6 +22,10 @@
   --color-luteal:       #c5b4d8;
   --color-danger:       #d88a85;
 
+  /* Отметка самочувствия в календаре. Нарочно вне палитры фаз: любой из четырёх
+     фазовых цветов читался бы как ещё одна фаза. */
+  --color-sym-mark:     #9b8279;
+
   /* Текущая фаза - app.js перезаписывает на .cycle-ring-wrap inline-стилем */
   --phase-color: var(--color-menstruation);
 
@@ -594,6 +598,21 @@ html, body {
   stroke-dasharray: 2 1.5;
 }
 
+/* Отметка самочувствия: точка в правом верхнем углу клетки. В разметке клетки её
+   нет, ставит и снимает paintSymptomDots. Угол выбран потому, что центр занят
+   кружком менструации и сердцем овуляции: на самом узком экране (320px) клетка
+   около 38px, кружок 32px, и точка расходится с его краем на пару пикселей. */
+.cell-sym {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-sym-mark);
+  pointer-events: none;
+}
+
 /* Legend над календарём */
 .calendar-legend {
   display: grid;
@@ -635,6 +654,20 @@ html, body {
 
 .legend-dot-foll { background: #a8d8c5; }
 .legend-dot-lut { background: #c5b4d8; }
+
+/* Пятый пункт занимает обе колонки: половинчатая строка с пустой правой
+   половиной выглядит забытой. */
+.legend-item-wide {
+  grid-column: 1 / -1;
+}
+
+.legend-sym-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-sym-mark);
+  flex-shrink: 0;
+}
 
 .legend-heart {
   width: 14px;
